@@ -1,0 +1,113 @@
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { supabase } from '../lib/supabase.js'
+import { useRealtimeChannel } from './useRealtimeChannel.js'
+
+// Loads the current user's Oublex multiplayer lobby state:
+//   pendingInvites — invites where I'm invited and haven't joined yet
+//   sentInvites    — waiting games I'm seated in (creator or early joiner)
+//   activeGames    — games in progress involving me
+//   completed      — last 10 finished games involving me
+//   openGames      — joinable waiting games NOT involving me yet
+//                    (via oublex_list_open_games / oublex_join_open_game)
+// Returns { ...lists, opponents (id→profile), loading, reload }.
+//
+// Realtime + 30s polling keep these fresh. Requires the tables to be in
+// the supabase_realtime publication (done in oublex_multiplayer.sql).
+export function useMultiplayerLobby(userId) {
+  const [pendingInvites, setPendingInvites] = useState([])
+  const [sentInvites, setSentInvites] = useState([])
+  const [activeGames, setActiveGames] = useState([])
+  const [completed, setCompleted] = useState([])
+  const [openGames, setOpenGames] = useState([])
+  const [opponents, setOpponents] = useState({})
+  const [loading, setLoading] = useState(true)
+  const initialLoadDone = useRef(false)
+  const lastExpireSweep = useRef(0)
+
+  const reload = useCallback(async () => {
+    if (!userId) return
+    // Only flash "Loading…" on the very first load. Subsequent refreshes
+    // (realtime + polling) update silently behind the existing data.
+    if (!initialLoadDone.current) setLoading(true)
+    try {
+      // Sweep stale invites at most once every 5 minutes — not on every reload.
+      const now = Date.now()
+      if (now - lastExpireSweep.current > 5 * 60_000) {
+        lastExpireSweep.current = now
+        supabase.rpc('oublex_expire_stale_invites').then(() => {}, () => {})
+      }
+
+      // My games + open games I might join. Single round-trip.
+      const [{ data: games, error: gErr }, { data: open }] = await Promise.all([
+        supabase
+          .from('oublex_games')
+          .select('*, oublex_players(*)')
+          .or(`created_by.eq.${userId},invited_user_id.eq.${userId},invited_user_ids.cs.{${userId}}`)
+          .order('last_activity_at', { ascending: false }),
+        supabase.rpc('oublex_list_open_games'),
+      ])
+      if (gErr) throw gErr
+
+      const list = games ?? []
+      const playersOf = g => g['oublex_players'] ?? []
+      const amInvited = g => g.invited_user_id === userId || (g.invited_user_ids ?? []).includes(userId)
+      const amPlayer  = g => playersOf(g).some(p => p.user_id === userId)
+      const pending = list.filter(g => g.status === 'waiting' && amInvited(g) && !amPlayer(g))
+      // Any waiting game I'm seated in — as creator OR as a player who joined
+      // a not-yet-full N-player game. Without amPlayer a joiner's game falls
+      // into no bucket and vanishes from their lobby until it fills.
+      const sent     = list.filter(g => g.status === 'waiting' && amPlayer(g))
+      const active   = list.filter(g => g.status === 'active')
+      const finished = list.filter(g => g.status === 'finished').slice(0, 10)
+      const openList = open ?? []
+
+      // Collect opponent ids for profile lookup. Open-games creator profiles
+      // already come back via oublex_list_open_games, so we only need
+      // profiles for "my games" here.
+      const otherIds = new Set()
+      for (const g of list) {
+        if (g.created_by && g.created_by !== userId) otherIds.add(g.created_by)
+        if (g.invited_user_id && g.invited_user_id !== userId) otherIds.add(g.invited_user_id)
+        for (const iid of g.invited_user_ids ?? []) if (iid && iid !== userId) otherIds.add(iid)
+        for (const p of playersOf(g)) if (p.user_id && p.user_id !== userId) otherIds.add(p.user_id)
+      }
+
+      let oppMap = {}
+      if (otherIds.size > 0) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_hue')
+          .in('id', Array.from(otherIds))
+        for (const p of profs ?? []) oppMap[p.id] = p
+      }
+
+      setPendingInvites(pending)
+      setSentInvites(sent)
+      setActiveGames(active)
+      setCompleted(finished)
+      setOpenGames(openList)
+      setOpponents(oppMap)
+    } catch (err) {
+      console.error('[useMultiplayerLobby] failed', err)
+    } finally {
+      setLoading(false)
+      initialLoadDone.current = true
+    }
+  }, [userId])
+
+  useEffect(() => { reload() }, [reload])
+
+  useRealtimeChannel({
+    channelName: `lobby_oublex_${userId}`,
+    subscriptions: userId ? [
+      { event: '*', schema: 'public', table: 'oublex_games', filter: `created_by=eq.${userId}` },
+      { event: '*', schema: 'public', table: 'oublex_games', filter: `invited_user_id=eq.${userId}` },
+      { event: '*', schema: 'public', table: 'oublex_players', filter: `user_id=eq.${userId}` },
+    ] : [],
+    onChange: reload,
+    pollMs: 30_000,
+    enabled: !!userId,
+  })
+
+  return { pendingInvites, sentInvites, activeGames, completed, openGames, opponents, loading, reload }
+}
