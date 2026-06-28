@@ -13,19 +13,19 @@ export const LETTER_VALUE = {
 // 5-room dungeon. HP curve + counter-damage are fixed (same for everyone);
 // narrative is Raven's (still flagged for a voice rework before launch).
 export const ROOMS = [
-  { name:'Gnashling',   hp:15, counter:8,
+  { name:'Gnashling',   hp:12, counter:4,
     enc:"A Gnashling the size of a teapot screams at you and means it.",
     kill:"Your word swats it across the room. It is still yelling." },
-  { name:'Mire Crawler', hp:25, counter:10,
+  { name:'Mire Crawler', hp:18, counter:6,
     enc:"The Mire Crawler comes up through the standing water without a sound.",
     kill:"Your word opens it. It sinks back down the way it came." },
-  { name:'Bone Choir',  hp:35, counter:12,
+  { name:'Bone Choir',  hp:24, counter:8,
     enc:"Three skulls hold one note, and the note knows your name.",
     kill:"Your word breaks the chord. The silence afterward is worse." },
-  { name:'Rust Ogre',   hp:50, counter:15,
+  { name:'Rust Ogre',   hp:30, counter:10,
     enc:"The Rust Ogre takes up the whole room and is in no hurry about it.",
     kill:"Your word goes through the armour. It takes the rest of the day to fall." },
-  { name:'The Lexivore', hp:80, counter:20,
+  { name:'The Lexivore', hp:40, counter:12,
     enc:"The Lexivore opens every mouth at once and waits for you to feed it.",
     kill:"You spell the word it cannot eat. It starves in seconds. Run complete." },
 ]
