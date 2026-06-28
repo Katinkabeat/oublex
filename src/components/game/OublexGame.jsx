@@ -1,9 +1,11 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
+import { SQModal } from '../../../../rae-side-quest/packages/sq-ui'
 import { loadDictionary } from '../../lib/dictionary.js'
 import { OublexRun, ROOMS, INTRO, TRANSITION, LETTER_VALUE } from '../../lib/oublexEngine.js'
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
-// engine, and calls onGameOver(score) once when the run ends (score = HP left).
+// engine, and calls onGameOver(score) once when the run ends (score = total
+// damage dealt across the run).
 export default function OublexGame({ gameId, onGameOver }) {
   const [dict, setDict] = useState(null)
   const runRef = useRef(null)
@@ -84,7 +86,9 @@ function HPBar({ label, value, max, tone }) {
 // Single tile — uses the shared sq-ui `.tile` / `.tile-value` styling (same as
 // Yahdle's dice). Selected (in-word) tiles just dim, no coloured highlight.
 function Tile({ tile, size, selected, onClick, readOnly }) {
-  const face = tile.letter === '?' ? '★' : tile.letter
+  // A wildcard shows ★ until the player assigns it a letter, then shows that
+  // letter in amber so it reads as "this is your wild playing as X" (value 0).
+  const face = tile.isWild ? (tile.assigned || '★') : tile.letter
   return (
     <button
       type="button"
@@ -92,7 +96,7 @@ function Tile({ tile, size, selected, onClick, readOnly }) {
       onClick={onClick}
       className={`tile font-display ${size} ${selected ? 'opacity-40' : ''} ${readOnly ? 'tile-disabled' : ''}`}
     >
-      <span className="leading-none">{face}</span>
+      <span className={`leading-none${tile.isWild ? ' text-amber-500' : ''}`}>{face}</span>
       <span className="tile-value">{LETTER_VALUE[tile.letter]}</span>
     </button>
   )
@@ -124,9 +128,45 @@ function Intro({ onEnter }) {
   )
 }
 
+// A–Z picker for assigning a wildcard the letter the player intends to use.
+// Mirrors Wordy's blank-tile modal; the wildcard still scores 0 damage.
+function WildPicker({ onPick, onCancel }) {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+  return (
+    <SQModal open onClose={onCancel} title="★ Choose a letter for your wildcard">
+      <div className="grid grid-cols-7 gap-1.5">
+        {letters.map((l) => (
+          <button
+            key={l}
+            type="button"
+            onClick={() => onPick(l)}
+            className="h-9 rounded-lg bg-wordy-100 hover:bg-wordy-300 text-wordy-800 font-display text-base transition-colors"
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] opacity-60 mt-3">The wildcard plays as this letter but scores 0 damage. It's used up once you cast.</p>
+    </SQModal>
+  )
+}
+
 function Fight({ run, apply }) {
   const room = ROOMS[run.room]
   const ev = run.evalSelection()
+  const [wildId, setWildId] = useState(null)
+
+  // Tapping a not-yet-played wildcard opens the picker; everything else toggles.
+  function onRackTile(id) {
+    const t = run.rack.find((x) => x.id === id)
+    if (t?.isWild && !run.word.includes(id)) { setWildId(id); return }
+    apply(() => run.toggleTile(id))
+  }
+  function pickWild(letter) {
+    const id = wildId
+    setWildId(null)
+    apply(() => { run.assignWild(id, letter); run.toggleTile(id) })
+  }
   let meta = null
   if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg</span>
   else if (ev.kind === 'word' && ev.valid)
@@ -138,6 +178,7 @@ function Fight({ run, apply }) {
 
   return (
     <>
+      {wildId != null && <WildPicker onPick={pickWild} onCancel={() => setWildId(null)} />}
       <div className="card mb-3">
         <HPBar label="♪ Bard · doubled-letter +50%" value={run.heroHP} max={run.heroMax} tone="hero" />
       </div>
@@ -160,7 +201,7 @@ function Fight({ run, apply }) {
           <span>{ev.len ? (ev.kind === 'rune' ? '1 rune' : `${ev.len} letters`) : ''}</span>
           <span>{meta}</span>
         </div>
-        <Rack tiles={run.rack} word={run.word} onTile={(id) => apply(() => run.toggleTile(id))} />
+        <Rack tiles={run.rack} word={run.word} onTile={onRackTile} />
         <div className="flex gap-2 mt-3">
           <button className="btn-secondary flex-1" disabled={!run.word.length}
             onClick={() => apply(() => run.clearWord())}>clear</button>
@@ -186,7 +227,7 @@ function Victory({ run, onward }) {
 
 function Loot({ run, take }) {
   const options = [
-    { k: 'wild', icon: '◆', name: 'Wildcard tile', desc: 'a ★ that plays as any letter' },
+    { k: 'wild', icon: '◆', name: 'Wildcard tile', desc: 'a ★ you play as any letter, once' },
     { k: 'hp', icon: '✚', name: '+20 HP', desc: 'patch your wounds' },
     { k: 'redraw', icon: '↻', name: 'Redraw rack', desc: 'swap all 7 for fresh tiles' },
   ]
@@ -218,10 +259,10 @@ function EndScreen({ run }) {
         {won ? 'Dungeon cleared.' : `You fell in Room ${run.room + 1}.`}
       </div>
       <p className="leading-relaxed">
-        Rooms cleared: <b>{run.roomsCleared}/5</b> · HP remaining: <b>{run.heroHP}</b>
+        Rooms cleared: <b>{run.roomsCleared}/5</b> · Total damage: <b>{run.totalDamage}</b> · HP left: <b>{run.heroHP}</b>
       </p>
       <p className="text-xs opacity-70 mt-2">
-        Today's run is logged. One attempt per day. The leaderboard ranks by HP remaining.
+        Today's run is logged. One attempt per day. The leaderboard ranks by total damage dealt.
       </p>
     </div>
   )

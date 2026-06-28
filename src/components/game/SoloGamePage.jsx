@@ -70,7 +70,7 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
     body = (
       <div className="card text-center max-w-xl mx-auto">
         <div className="font-display text-2xl text-wordy-700 mb-2">You've delved today.</div>
-        <p>HP remaining: <b>{existing.score}</b></p>
+        <p>Total damage: <b>{existing.score}</b></p>
         <p className="text-xs opacity-70 mt-2">One run a day. The dungeon resets tomorrow.</p>
         <div className="flex gap-2 justify-center mt-4">
           <button className="btn-secondary" onClick={() => navigate('/')}>← Lobby</button>

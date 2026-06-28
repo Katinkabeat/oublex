@@ -68,6 +68,7 @@ export class OublexRun {
     this.word = []                // array of tile ids
     this.log = ''
     this.lastRuneFlavor = ''
+    this.totalDamage = 0          // leaderboard metric = cumulative damage dealt
   }
 
   // ---- tiles / rack (seeded draws, >=2 vowels & >=2 consonants) ----
@@ -86,6 +87,8 @@ export class OublexRun {
   }
 
   refillSpent() {
+    // A spent wildcard is consumed, not replaced — the rack shrinks back to 7.
+    this.rack = this.rack.filter(t => !(t.spent && t.isWild))
     const kept = this.rack.filter(t => !t.spent)
     let v = kept.filter(t => isVowel(t.letter)).length
     let c = kept.filter(t => !isVowel(t.letter) && t.letter !== '?').length
@@ -102,24 +105,25 @@ export class OublexRun {
   // ---- selection / damage ----
   wordTiles() { return this.word.map(id => this.rack.find(t => t.id === id)) }
 
+  // The letter a tile contributes to a word: a wildcard plays as its
+  // player-chosen letter; everything else is its own face.
+  effLetter(t) { return t.isWild ? (t.assigned || '?') : t.letter }
+  // Damage value of a tile — a wildcard is always worth 0.
+  tileValue(t) { return t.isWild ? 0 : LETTER_VALUE[t.letter] }
+
   _validWord(letters) {
     const w = letters.join('')
-    if (!w.includes('?')) return dictHas(w, this.dict)
-    const i = w.indexOf('?')
-    for (let c = 65; c <= 90; c++) {
-      const cand = w.slice(0, i) + String.fromCharCode(c) + w.slice(i + 1)
-      if (!cand.includes('?') && dictHas(cand, this.dict)) return true
-    }
-    return false
+    if (w.includes('?')) return false   // an unassigned wildcard can't form a word
+    return dictHas(w, this.dict)
   }
 
   evalSelection() {
     const tiles = this.wordTiles()
-    const letters = tiles.map(t => t.letter)
+    const letters = tiles.map(t => this.effLetter(t))
     const len = letters.length
     if (len === 0) return { len: 0, kind: 'none', valid: false, dmg: 0 }
-    if (len === 1) return { len: 1, kind: 'rune', valid: true, dmg: LETTER_VALUE[letters[0]], letters }
-    const base = tiles.reduce((s, t) => s + LETTER_VALUE[t.letter], 0)
+    if (len === 1) return { len: 1, kind: 'rune', valid: true, dmg: this.tileValue(tiles[0]), letters }
+    const base = tiles.reduce((s, t) => s + this.tileValue(t), 0)
     const valid = this._validWord(letters)
     const doubled = hasDoubledLetter(letters)   // Bard: +50% on a doubled letter
     const dmg = valid ? Math.round(base * (doubled ? 1.5 : 1)) : 0
@@ -132,10 +136,24 @@ export class OublexRun {
     const t = this.rack.find(x => x.id === id)
     if (!t || t.spent) return
     const idx = this.word.indexOf(id)
-    if (idx >= 0) this.word.splice(idx, 1); else this.word.push(id)
+    if (idx >= 0) {
+      this.word.splice(idx, 1)
+      if (t.isWild) t.assigned = null   // releasing a wildcard clears its chosen letter
+    } else {
+      this.word.push(id)
+    }
   }
 
-  clearWord() { this.word = [] }
+  // Assign the player-chosen letter to a wildcard tile before it joins a word.
+  assignWild(id, letter) {
+    const t = this.rack.find(x => x.id === id)
+    if (t && t.isWild && !t.spent) t.assigned = letter
+  }
+
+  clearWord() {
+    this.wordTiles().forEach(t => { if (t && t.isWild) t.assigned = null })
+    this.word = []
+  }
 
   enterDungeon() { this.phase = 'fight'; this.log = ROOMS[0].enc }
 
@@ -143,6 +161,7 @@ export class OublexRun {
     const ev = this.evalSelection()
     if (!ev.valid || ev.len < 1) return
     this.monsterHP = Math.max(0, this.monsterHP - ev.dmg)
+    this.totalDamage += ev.dmg     // cumulative word damage = the skill score
     this.wordTiles().forEach(t => { t.spent = true })
     this.refillSpent()
     this.word = []
@@ -169,7 +188,7 @@ export class OublexRun {
 
   takeLoot(kind) {
     if (kind === 'hp') this.heroHP = Math.min(this.heroMax, this.heroHP + 20)
-    if (kind === 'wild') this.rack.push({ id: this.nextId++, letter: '?', spent: false })
+    if (kind === 'wild') this.rack.push({ id: this.nextId++, letter: '?', isWild: true, assigned: null, spent: false })
     if (kind === 'redraw') this.rack = this.freshRack()
     this.room++
     this.monsterHP = ROOMS[this.room].hp
@@ -180,7 +199,7 @@ export class OublexRun {
 
   // ---- derived ----
   get isGameOver() { return this.phase === 'win' || this.phase === 'dead' }
-  get score() { return this.heroHP }            // leaderboard metric = HP remaining
+  get score() { return this.totalDamage }       // leaderboard metric = cumulative damage
   get roomsCleared() { return this.phase === 'win' ? ROOMS.length : this.room }
 }
 
