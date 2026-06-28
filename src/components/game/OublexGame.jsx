@@ -87,30 +87,34 @@ function HPBar({ label, value, max, tone }) {
   )
 }
 
-function Tile({ tile, selected, onClick, readOnly }) {
+// Single tile — uses the shared sq-ui `.tile` / `.tile-value` styling (same as
+// Yahdle's dice). Selected (in-word) tiles just dim, no coloured highlight.
+function Tile({ tile, size, selected, onClick, readOnly }) {
   const face = tile.letter === '?' ? '★' : tile.letter
   return (
     <button
       type="button"
       disabled={readOnly}
       onClick={onClick}
-      className={`relative w-12 h-13 rounded-lg font-display text-2xl font-extrabold
-        bg-gradient-to-br from-wordy-100 to-wordy-200 text-wordy-900
-        border ${selected ? 'border-pink-400 ring-2 ring-pink-400' : 'border-wordy-400'}
-        ${readOnly ? 'cursor-default' : 'hover:-translate-y-0.5'} transition-transform`}
-      style={{ height: '3.25rem' }}
+      className={`tile font-display ${size} ${selected ? 'opacity-40' : ''} ${readOnly ? 'tile-disabled' : ''}`}
     >
-      {face}
-      <span className="absolute bottom-0.5 right-1 text-[10px] font-bold">{LETTER_VALUE[tile.letter]}</span>
+      <span className="leading-none">{face}</span>
+      <span className="tile-value">{LETTER_VALUE[tile.letter]}</span>
     </button>
   )
 }
 
-function Rack({ tiles, word = [], onTile, readOnly }) {
+// A row of tiles on ONE line (no wrap). w-11 like Yahdle; shrinks to w-10 if a
+// wildcard pushes the rack to 8 so it still fits a narrow phone. `small` = the
+// word-staging tray.
+function Rack({ tiles, word = [], onTile, readOnly, small }) {
+  const size = small
+    ? 'w-9 h-9 text-base'
+    : (tiles.length > 7 ? 'w-10 h-10 text-lg' : 'w-11 h-11 text-xl')
   return (
-    <div className="flex gap-2 justify-center flex-wrap">
+    <div className="flex justify-center gap-1.5">
       {tiles.map((t) => (
-        <Tile key={t.id} tile={t} selected={word.includes(t.id)} readOnly={readOnly}
+        <Tile key={t.id} tile={t} size={size} selected={word.includes(t.id)} readOnly={readOnly}
           onClick={() => onTile?.(t.id)} />
       ))}
     </div>
@@ -151,7 +155,7 @@ function Fight({ run, apply }) {
       <div className="card mb-3">
         <div className="min-h-[52px] border-2 border-dashed border-wordy-200 rounded-lg flex items-center gap-1.5 flex-wrap p-2 bg-wordy-50 mb-1">
           {run.word.length
-            ? <Rack tiles={run.wordTiles()} word={run.word} onTile={(id) => apply(() => run.toggleTile(id))} />
+            ? <Rack tiles={run.wordTiles()} word={[]} small onTile={(id) => apply(() => run.toggleTile(id))} />
             : <span className="text-sm opacity-60 px-1">tap tiles to spell a word — or tap one to hurl it as a rune</span>}
         </div>
         <div className="flex justify-between text-sm font-bold opacity-70 mb-2 min-h-[18px]">
