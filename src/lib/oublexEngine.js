@@ -4,31 +4,17 @@
 
 import { rngFromSeed } from './rng.js'
 import { isValidWord as dictHas } from './dictionary.js'
+import { TIERS } from './bestiary.js'
 
 export const LETTER_VALUE = {
   A:1,B:3,C:3,D:2,E:1,F:4,G:2,H:4,I:1,J:8,K:5,L:1,M:3,N:1,O:1,
   P:3,Q:10,R:1,S:1,T:1,U:1,V:4,W:4,X:8,Y:4,Z:10,'?':0,
 }
 
-// 5-room dungeon. HP curve + counter-damage are fixed (same for everyone);
-// narrative is Raven's (still flagged for a voice rework before launch).
-export const ROOMS = [
-  { name:'Gnashling',   hp:12, counter:4,
-    enc:"A Gnashling the size of a teapot screams at you and means it.",
-    kill:"Your word swats it across the room. It is still yelling." },
-  { name:'Mire Crawler', hp:18, counter:6,
-    enc:"The Mire Crawler comes up through the standing water without a sound.",
-    kill:"Your word opens it. It sinks back down the way it came." },
-  { name:'Bone Choir',  hp:24, counter:8,
-    enc:"Three skulls hold one note, and the note knows your name.",
-    kill:"Your word breaks the chord. The silence afterward is worse." },
-  { name:'Rust Ogre',   hp:30, counter:10,
-    enc:"The Rust Ogre takes up the whole room and is in no hurry about it.",
-    kill:"Your word goes through the armour. It takes the rest of the day to fall." },
-  { name:'The Lexivore', hp:40, counter:12,
-    enc:"The Lexivore opens every mouth at once and waits for you to feed it.",
-    kill:"You spell the word it cannot eat. It starves in seconds. Run complete." },
-]
+// The 5-room dungeon is resolved per run from the tiered bestiary (see
+// buildRooms): one monster per HP tier per day, one encounter + kill variant
+// each, seeded so the dungeon is identical for everyone on a given date but
+// rotates day to day. HP and counter-damage stay fixed per tier.
 
 export const INTRO = [
   "The dark down here is older than the floor it sits on.",
@@ -62,13 +48,26 @@ export class OublexRun {
     this.room = 0
     this.heroHP = HERO_MAX
     this.heroMax = HERO_MAX
-    this.monsterHP = ROOMS[0].hp
+    this.rooms = this.buildRooms() // 5 resolved rooms, seeded from the bestiary
+    this.monsterHP = this.rooms[0].hp
     this.nextId = 0
     this.rack = this.freshRack()
     this.word = []                // array of tile ids
     this.log = ''
     this.lastRuneFlavor = ''
     this.totalDamage = 0          // leaderboard metric = cumulative damage dealt
+  }
+
+  // Resolve the 5 rooms for this run: one monster per HP tier, one encounter +
+  // kill variant each. Uses its own seed stream so the tile bag is unaffected,
+  // and is deterministic per gameId so the dungeon matches for everyone that day.
+  buildRooms() {
+    const r = rngFromSeed(`oublex:bestiary:${this.gameId}`)
+    const pick = (arr) => arr[Math.floor(r() * arr.length)]
+    return TIERS.map((tier) => {
+      const m = pick(tier.monsters)
+      return { name: m.name, hp: tier.hp, counter: tier.counter, enc: pick(m.enc), kill: pick(m.kill) }
+    })
   }
 
   // ---- tiles / rack (seeded draws, >=2 vowels & >=2 consonants) ----
@@ -155,7 +154,7 @@ export class OublexRun {
     this.word = []
   }
 
-  enterDungeon() { this.phase = 'fight'; this.log = ROOMS[0].enc }
+  enterDungeon() { this.phase = 'fight'; this.log = this.rooms[0].enc }
 
   cast() {
     const ev = this.evalSelection()
@@ -165,7 +164,7 @@ export class OublexRun {
     this.wordTiles().forEach(t => { t.spent = true })
     this.refillSpent()
     this.word = []
-    const room = ROOMS[this.room]
+    const room = this.rooms[this.room]
     let msg
     if (ev.kind === 'rune') {
       this.lastRuneFlavor = RUNE_FLAVOR[this.runeIdx % RUNE_FLAVOR.length]
@@ -175,7 +174,7 @@ export class OublexRun {
       msg = `You strike for ${ev.dmg}${ev.doubled ? ' (doubled-letter bonus)' : ''}.`
     }
     if (this.monsterHP <= 0) {
-      this.phase = (this.room === ROOMS.length - 1) ? 'win' : 'victory'
+      this.phase = (this.room === this.rooms.length - 1) ? 'win' : 'victory'
       this.log = msg
     } else {
       this.heroHP = Math.max(0, this.heroHP - room.counter)
@@ -191,16 +190,16 @@ export class OublexRun {
     if (kind === 'wild') this.rack.push({ id: this.nextId++, letter: '?', isWild: true, assigned: null, spent: false })
     if (kind === 'redraw') this.rack = this.freshRack()
     this.room++
-    this.monsterHP = ROOMS[this.room].hp
+    this.monsterHP = this.rooms[this.room].hp
     this.word = []
     this.phase = 'fight'
-    this.log = ROOMS[this.room].enc
+    this.log = this.rooms[this.room].enc
   }
 
   // ---- derived ----
   get isGameOver() { return this.phase === 'win' || this.phase === 'dead' }
   get score() { return this.totalDamage }       // leaderboard metric = cumulative damage
-  get roomsCleared() { return this.phase === 'win' ? ROOMS.length : this.room }
+  get roomsCleared() { return this.phase === 'win' ? this.rooms.length : this.room }
 }
 
 function hasDoubledLetter(ls) {

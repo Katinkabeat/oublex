@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { SQModal } from '../../../../rae-side-quest/packages/sq-ui'
 import { loadDictionary } from '../../lib/dictionary.js'
-import { OublexRun, ROOMS, INTRO, TRANSITION, LETTER_VALUE } from '../../lib/oublexEngine.js'
+import { OublexRun, INTRO, TRANSITION, LETTER_VALUE } from '../../lib/oublexEngine.js'
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
 // engine, and calls onGameOver(score) once when the run ends (score = total
@@ -31,12 +31,12 @@ export default function OublexGame({ gameId, onGameOver }) {
   }
 
   if (!run) {
-    return <div className="py-10 text-center opacity-70">Loading the codex…</div>
+    return <div className="py-10 text-center opacity-70">Cracking open the spellbook…</div>
   }
 
   return (
     <div className="max-w-xl mx-auto">
-      <RunBar room={run.room} phase={run.phase} />
+      <RunBar room={run.room} phase={run.phase} count={run.rooms.length} />
 
       {run.phase === 'intro' && <Intro onEnter={() => apply(() => run.enterDungeon())} />}
       {run.phase === 'fight' && <Fight run={run} apply={apply} />}
@@ -47,10 +47,10 @@ export default function OublexGame({ gameId, onGameOver }) {
   )
 }
 
-function RunBar({ room, phase }) {
+function RunBar({ room, phase, count }) {
   return (
     <div className="flex gap-2 mb-4">
-      {ROOMS.map((r, i) => {
+      {Array.from({ length: count }).map((_, i) => {
         const done = i < room || phase === 'win'
         const current = i === room && phase !== 'win'
         const cls = done
@@ -152,7 +152,7 @@ function WildPicker({ onPick, onCancel }) {
 }
 
 function Fight({ run, apply }) {
-  const room = ROOMS[run.room]
+  const room = run.rooms[run.room]
   const ev = run.evalSelection()
   const [wildId, setWildId] = useState(null)
 
@@ -171,7 +171,7 @@ function Fight({ run, apply }) {
   if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg</span>
   else if (ev.kind === 'word' && ev.valid)
     meta = <span className="text-wordy-600">{ev.doubled ? `♪ ${ev.base} ×1.5 = ${ev.dmg} dmg` : `${ev.dmg} dmg`}</span>
-  else if (ev.kind === 'word' && !ev.valid) meta = <span className="text-rose-500">not in the codex</span>
+  else if (ev.kind === 'word' && !ev.valid) meta = <span className="text-rose-500">the spellbook has never heard of it</span>
 
   const canCast = ev.kind === 'rune' || (ev.kind === 'word' && ev.valid)
   const castLabel = ev.kind === 'rune' ? '⚡ hurl rune' : '⚔ cast word'
@@ -214,7 +214,7 @@ function Fight({ run, apply }) {
 }
 
 function Victory({ run, onward }) {
-  const room = ROOMS[run.room]
+  const room = run.rooms[run.room]
   return (
     <div className="card text-center">
       <div className="font-display text-2xl text-green-600 mb-2">{room.name} down.</div>
