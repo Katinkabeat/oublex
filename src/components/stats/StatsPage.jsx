@@ -171,7 +171,7 @@ function LeaderboardTab({ userId }) {
           myRank={myRank}
           emptyMessage={
             timeframe === 'day'
-              ? (isToday ? "No one's played yet today — be the first." : "No scores recorded for this day.")
+              ? (isToday ? "No one's played yet today. Be the first." : "No scores recorded for this day.")
               : "No scores in this window yet."
           }
         />
@@ -280,7 +280,7 @@ function MyStatsTab(/* { userId } */) {
   return (
     <div className="space-y-4">
       <p className="opacity-80">
-        Stats placeholder — wire up the per-game numbers, charts, and history here.
+        Stats placeholder. Per-game numbers, charts, and history go here.
       </p>
     </div>
   )

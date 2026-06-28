@@ -34,12 +34,6 @@ export default function OublexGame({ gameId, onGameOver }) {
 
   return (
     <div className="max-w-xl mx-auto">
-      <div className="text-center mb-3">
-        <span className="inline-block px-3 py-1 rounded-full border border-wordy-400 text-wordy-700 text-xs font-extrabold tracking-wide uppercase">
-          ♪ Bard — doubled-letter words +50% dmg
-        </span>
-      </div>
-
       <RunBar room={run.room} phase={run.phase} />
 
       {run.phase === 'intro' && <Intro onEnter={() => apply(() => run.enterDungeon())} />}
@@ -145,6 +139,10 @@ function Fight({ run, apply }) {
   return (
     <>
       <div className="card mb-3">
+        <HPBar label="♪ Bard · doubled-letter +50%" value={run.heroHP} max={run.heroMax} tone="hero" />
+      </div>
+
+      <div className="card mb-3">
         <p className="font-display text-2xl text-rose-500 mb-3">{room.name}</p>
         <HPBar label="Monster" value={run.monsterHP} max={room.hp} tone="monster" />
         <div className="mt-3 pt-3 border-t border-wordy-200 text-[15px] leading-relaxed min-h-[66px]">
@@ -152,11 +150,11 @@ function Fight({ run, apply }) {
         </div>
       </div>
 
-      <div className="card mb-3">
+      <div className="card">
         <div className="min-h-[52px] border-2 border-dashed border-wordy-200 rounded-lg flex items-center gap-1.5 flex-wrap p-2 bg-wordy-50 mb-1">
           {run.word.length
             ? <Rack tiles={run.wordTiles()} word={[]} small onTile={(id) => apply(() => run.toggleTile(id))} />
-            : <span className="text-sm opacity-60 px-1">tap tiles to spell a word — or tap one to hurl it as a rune</span>}
+            : <span className="text-sm opacity-60 px-1">tap tiles to spell a word, or tap one to hurl it as a rune</span>}
         </div>
         <div className="flex justify-between text-sm font-bold opacity-70 mb-2 min-h-[18px]">
           <span>{ev.len ? (ev.kind === 'rune' ? '1 rune' : `${ev.len} letters`) : ''}</span>
@@ -169,10 +167,6 @@ function Fight({ run, apply }) {
           <button className="btn-primary flex-1" disabled={!canCast}
             onClick={() => apply(() => run.cast())}>{castLabel}</button>
         </div>
-      </div>
-
-      <div className="card">
-        <HPBar label="You — Bard" value={run.heroHP} max={run.heroMax} tone="hero" />
       </div>
     </>
   )
@@ -199,7 +193,7 @@ function Loot({ run, take }) {
   return (
     <div className="card">
       <p className="font-extrabold text-green-600 text-center mb-3">You search the room. Choose your spoils:</p>
-      <HPBar label="You — Bard" value={run.heroHP} max={run.heroMax} tone="hero" />
+      <HPBar label="♪ Bard · doubled-letter +50%" value={run.heroHP} max={run.heroMax} tone="hero" />
       <p className="text-xs font-bold opacity-70 mt-3 mb-1">Your current rack</p>
       <Rack tiles={run.rack} readOnly />
       <div className="flex gap-2.5 mt-4">
@@ -227,7 +221,7 @@ function EndScreen({ run }) {
         Rooms cleared: <b>{run.roomsCleared}/5</b> · HP remaining: <b>{run.heroHP}</b>
       </p>
       <p className="text-xs opacity-70 mt-2">
-        Today's run is logged. One attempt per day — the leaderboard ranks by HP remaining.
+        Today's run is logged. One attempt per day. The leaderboard ranks by HP remaining.
       </p>
     </div>
   )

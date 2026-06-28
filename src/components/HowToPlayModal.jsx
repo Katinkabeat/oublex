@@ -8,7 +8,7 @@ export default function HowToPlayModal({ open, onClose }) {
       <div className="space-y-3 text-sm">
         <p>
           {/* TODO write the actual rules for Oublex here. */}
-          Instructions coming soon — write them as the game's rules settle.
+          Instructions coming soon.
         </p>
       </div>
     </SQModal>
