@@ -48,6 +48,21 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
       .then(({ error }) => { if (error) console.error('[oublex] record result failed', error) })
   }
 
+  // Admin-only test tool: wipe today's row (DELETE-own RLS) so the daily can be
+  // replayed. Gated to admins in the UI below; the policy only allows self-deletes.
+  function handleReset() {
+    if (!userId || !gameId) return
+    supabase
+      .from('oublex_solo_results')
+      .delete()
+      .eq('user_id', userId)
+      .eq('play_date', gameId)
+      .then(({ error }) => {
+        if (error) { console.error('[oublex] reset failed', error); return }
+        setExisting(null) // drop straight back into a fresh run of today's seed
+      })
+  }
+
   let body
   if (existing === undefined) {
     body = <div className="py-10 text-center opacity-70">Loading…</div>
@@ -61,6 +76,16 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
           <button className="btn-secondary" onClick={() => navigate('/')}>← Lobby</button>
           <button className="btn-primary" onClick={() => navigate('/stats')}>Leaderboard</button>
         </div>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={handleReset}
+            className="mt-3 text-xs font-bold px-3 py-1 rounded border border-amber-400 text-amber-600 hover:bg-amber-50"
+            title="Admin only: delete today's result and replay the daily seed"
+          >
+            ↻ Reset today (admin)
+          </button>
+        )}
       </div>
     )
   } else {
