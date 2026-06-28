@@ -26,7 +26,12 @@ The MP section below is for if/when MP is ever added.
   spell words from a 7-tile rack (guaranteed >=2 vowels + >=2 consonants so it
   never dead-ends), 2-letter words legal, single-tile "runes" as a chip backstop.
   Bard class: a word with a doubled letter does x1.5. Loot 1-of-3 between rooms
-  (wildcard / +20 HP / redraw). Score = HP remaining.
+  (wildcard / +20 HP / redraw). **Score = cumulative damage dealt** (sum of every
+  cast's damage across the run; changed from HP-remaining 2026-06-28 to reward
+  word skill). **Wildcard:** taking it adds an 8th `★` tile; tapping it opens a
+  Wordy-style A–Z picker so the player chooses the letter it plays as (scores 0).
+  It's consumed on cast — `refillSpent` drops a spent wild so the rack returns to
+  7 (it is NOT refilled). Validation/scoring use `effLetter`/`tileValue` helpers.
 - **Monster curve A (rebalanced 2026-06-28):** HP 12/18/24/30/40, counter
   4/6/8/10/12. The original 15/25/35/50/80 + 8/10/12/15/20 was UNWINNABLE (damage
   sim: 0/20 wins). Curve A is sim-verified winnable (14/14). If retuning, re-run a
@@ -81,6 +86,28 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 - Push triggers need `<PROJECT_REF>` + `<ANON_JWT>` filled in.
 
 ## Session log
+
+### 2026-06-28 — Wildcard rework + scoring change
+
+Rae flagged two things while testing: (1) the wildcard auto-resolved its letter
+(brute-forced A–Z in `_validWord`) and the rack stayed stuck at 8 forever; (2)
+the leaderboard ranked by HP remaining, which she didn't recall choosing and
+which rewards survival over word skill. Fixed all three:
+
+- **Wildcard letter picker** — `OublexGame.jsx` `WildPicker` (SQModal A–Z grid,
+  Wordy-style); `engine.assignWild(id,letter)` stores the choice, `toggleTile`
+  clears it on release. Wild still scores 0 (`tileValue`). Also fixed a latent
+  two-blank-word-never-validates bug.
+- **Rack returns to 7** — `refillSpent` filters out spent wild tiles instead of
+  refilling them.
+- **Score = cumulative damage** — `totalDamage` accrues in `cast`; `get score()`
+  returns it. Leaderboard already rendered "pts" and sorts `score` desc
+  server-side, so NO SQL change. Labels updated (end screen + already-delved).
+
+Verified via a 14-assertion Node test of the pure engine (all pass) + clean
+`vite build`. NOT exercised in a live authed browser (auth-gated). **Gotcha:**
+existing `oublex_solo_results` rows hold old HP-based scores and will mix with
+new damage scores on the leaderboard until cleared.
 
 ### 2026-06-27/28 — Named, built, gated-launched (solo v1)
 
