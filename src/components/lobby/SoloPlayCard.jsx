@@ -32,7 +32,7 @@ export default function SoloPlayCard({ session }) {
     <section className="card relative">
       <h2 className="font-display text-xl mb-1">🗝️ Daily Dungeon</h2>
       <p className="text-sm opacity-80 mb-3">
-        Spell your way down through five rooms. One run a day. Get out with as much HP as you can.
+        Spell your way down through five rooms. One run a day. Deal as much damage as you can before the dark takes you.
       </p>
       <button type="button" className="btn-primary" onClick={handlePlay}>
         {playedToday ? '↗ View today\'s result' : '▶ Play today\'s run'}

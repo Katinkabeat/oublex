@@ -114,11 +114,11 @@ exact) + 30-seed x 4-class greedy sim through the real cast path = **all 4 win
 30/30**, damage clustered 147-154 avg (Mage highest, Cleric survives most/deals
 least — intended), so curve A holds, no retune. Clean `vite build`. Browser:
 injected an admin session, drove picker -> Mage -> fight -> cast live, no console
-errors. NOTE (out of scope, flag): lobby `SoloPlayCard` copy still says "get out
-with as much HP as you can" but scoring is cumulative damage now — fix when the
-how-to-play copy lands. Class is NOT yet persisted to the DB result row (would
-need a `hero_class` column + RPC change) — follow-up if the leaderboard should
-show class.
+errors. Lobby `SoloPlayCard` copy fixed this session (was "get out with as much
+HP as you can", now "deal as much damage as you can before the dark takes you" to
+match cumulative-damage scoring). Class is NOT persisted to the DB result row and
+**Rae decided it does NOT need to be** (no class shown on the leaderboard), so no
+`hero_class` column / RPC change.
 
 ### 2026-06-28 — Wildcard rework + scoring change
 
