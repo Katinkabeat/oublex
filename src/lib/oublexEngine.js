@@ -11,6 +11,25 @@ export const LETTER_VALUE = {
   P:3,Q:10,R:1,S:1,T:1,U:1,V:4,W:4,X:8,Y:4,Z:10,'?':0,
 }
 
+// The four classes. Each bends one rule of the fight; the chosen class is picked
+// once at the start of a run and applies for the whole dungeon. Damage modifiers
+// live in OublexRun.classDamage; the Cleric's heal lives in cast().
+export const CLASSES = [
+  { id:'bard',   sigil:'♪', name:'Bard',
+    blurb:'A word with a doubled letter hits for 1.5x.',
+    hpLabel:'♪ Bard · doubled letter 1.5x' },
+  { id:'mage',   sigil:'✶', name:'Mage',
+    blurb:'Go long. A 6-letter word hits 1.5x, a full 7-tile word 2x.',
+    hpLabel:'✶ Mage · long-word surge' },
+  { id:'ranger', sigil:'➹', name:'Ranger',
+    blurb:'Go fast. Short words of 2 to 3 letters strike twice.',
+    hpLabel:'➹ Ranger · double shot' },
+  { id:'cleric', sigil:'✚', name:'Cleric',
+    blurb:'Drain life. Heal a quarter of the damage you deal.',
+    hpLabel:'✚ Cleric · lifedrain' },
+]
+const CLASS_IDS = new Set(CLASSES.map(c => c.id))
+
 // The 5-room dungeon is resolved per run from the tiered bestiary (see
 // buildRooms): one monster per HP tier per day, one encounter + kill variant
 // each, seeded so the dungeon is identical for everyone on a given date but
@@ -44,7 +63,8 @@ export class OublexRun {
 
   reset() {
     this.rng = rngFromSeed(`oublex:daily:${this.gameId}`)
-    this.phase = 'intro'          // intro | fight | victory | loot | win | dead
+    this.phase = 'class'          // class | intro | fight | victory | loot | win | dead
+    this.heroClass = 'bard'       // overwritten by chooseClass before the run starts
     this.room = 0
     this.heroHP = HERO_MAX
     this.heroMax = HERO_MAX
@@ -124,9 +144,29 @@ export class OublexRun {
     if (len === 1) return { len: 1, kind: 'rune', valid: true, dmg: this.tileValue(tiles[0]), letters }
     const base = tiles.reduce((s, t) => s + this.tileValue(t), 0)
     const valid = this._validWord(letters)
-    const doubled = hasDoubledLetter(letters)   // Bard: +50% on a doubled letter
-    const dmg = valid ? Math.round(base * (doubled ? 1.5 : 1)) : 0
-    return { len, kind: 'word', valid, dmg, base, doubled, letters }
+    const mod = this.classDamage(letters, len)   // the chosen class bends the damage
+    const dmg = valid ? Math.round(base * mod.mult) : 0
+    return { len, kind: 'word', valid, dmg, base, mult: mod.mult, bonus: mod.label, letters }
+  }
+
+  // The chosen class's damage modifier for a candidate word. Returns a multiplier
+  // and a short label (shown when the multiplier beats 1x). The Cleric never
+  // modifies damage here — its lifedrain heal is applied in cast().
+  classDamage(letters, len) {
+    switch (this.heroClass) {
+      case 'mage':
+        if (len >= 7) return { mult: 2, label: 'full-rack surge' }
+        if (len >= 6) return { mult: 1.5, label: 'long-word surge' }
+        return { mult: 1, label: '' }
+      case 'ranger':
+        if (len >= 2 && len <= 3) return { mult: 2, label: 'double shot' }
+        return { mult: 1, label: '' }
+      case 'cleric':
+        return { mult: 1, label: '' }
+      case 'bard':
+      default:
+        return hasDoubledLetter(letters) ? { mult: 1.5, label: 'doubled-letter bonus' } : { mult: 1, label: '' }
+    }
   }
 
   // ---- actions ----
@@ -154,6 +194,12 @@ export class OublexRun {
     this.word = []
   }
 
+  // Lock in the class chosen on the opening screen, then show the intro.
+  chooseClass(id) {
+    if (CLASS_IDS.has(id)) this.heroClass = id
+    this.phase = 'intro'
+  }
+
   enterDungeon() { this.phase = 'fight'; this.log = this.rooms[0].enc }
 
   cast() {
@@ -161,6 +207,16 @@ export class OublexRun {
     if (!ev.valid || ev.len < 1) return
     this.monsterHP = Math.max(0, this.monsterHP - ev.dmg)
     this.totalDamage += ev.dmg     // cumulative word damage = the skill score
+    // Cleric lifedrain: heal a quarter of the damage just dealt (applies before
+    // the monster's counter, so a surviving turn nets heal minus counter).
+    let healMsg = ''
+    if (this.heroClass === 'cleric' && ev.dmg > 0) {
+      const heal = Math.round(ev.dmg * 0.25)
+      if (heal > 0) {
+        this.heroHP = Math.min(this.heroMax, this.heroHP + heal)
+        healMsg = ` You drain ${heal} HP.`
+      }
+    }
     this.wordTiles().forEach(t => { t.spent = true })
     this.refillSpent()
     this.word = []
@@ -169,9 +225,9 @@ export class OublexRun {
     if (ev.kind === 'rune') {
       this.lastRuneFlavor = RUNE_FLAVOR[this.runeIdx % RUNE_FLAVOR.length]
       this.runeIdx++
-      msg = `${this.lastRuneFlavor} (${ev.dmg} dmg)`
+      msg = `${this.lastRuneFlavor} (${ev.dmg} dmg)${healMsg}`
     } else {
-      msg = `You strike for ${ev.dmg}${ev.doubled ? ' (doubled-letter bonus)' : ''}.`
+      msg = `You strike for ${ev.dmg}${ev.bonus ? ` (${ev.bonus})` : ''}.${healMsg}`
     }
     if (this.monsterHP <= 0) {
       this.phase = (this.room === this.rooms.length - 1) ? 'win' : 'victory'
@@ -197,6 +253,7 @@ export class OublexRun {
   }
 
   // ---- derived ----
+  get classInfo() { return CLASSES.find(c => c.id === this.heroClass) || CLASSES[0] }
   get isGameOver() { return this.phase === 'win' || this.phase === 'dead' }
   get score() { return this.totalDamage }       // leaderboard metric = cumulative damage
   get roomsCleared() { return this.phase === 'win' ? this.rooms.length : this.room }

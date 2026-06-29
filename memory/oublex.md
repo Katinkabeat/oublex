@@ -53,6 +53,12 @@ The MP section below is for if/when MP is ever added.
 
 ## Multiplayer (baked in — DORMANT in v1)
 
+**DESIGN DIRECTION (Rae, 2026-06-28): MP, if it ever ships, must be
+COOPERATIVE (players team up against the dungeon, not against each other) and
+HARDER than the solo daily** (tougher monster curve / more rooms / shared HP
+pressure — exact knobs TBD). The baked-in scaffold below is the generic
+COMPETITIVE Yahdle port, so it would need reworking, not just enabling.
+
 The scaffold ships a working **N-player (2–4) multiplayer** engine ported
 from Yahdle — open + friend-invited games, auto-start when seats fill,
 modulo turn rotation, top-score-group-wins finalize, forfeit-continue,
@@ -86,6 +92,33 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 - Push triggers need `<PROJECT_REF>` + `<ANON_JWT>` filled in.
 
 ## Session log
+
+### 2026-06-28 — Four classes (the v2 class build)
+
+v1 shipped Bard-only; the other 3 classes were named but never designed and the
+code had no class field/picker. Rae picked mechanics off an interactive spread
+(`rae-side-quest/mockups/oublex-classes-mockup.html`). **Locked + built:**
+- **Bard** (unchanged): adjacent doubled letter -> x1.5.
+- **Mage** — long-word surge: 6-letter word x1.5, full 7-tile word x2 (else x1).
+- **Ranger** — double shot: 2-3 letter word strikes twice (x2); 4+ single.
+- **Cleric** — lifedrain: heal round(25% of damage dealt) per cast, no dmg mod.
+
+Engine (`oublexEngine.js`): added `CLASSES` table (id/sigil/name/blurb/hpLabel),
+a `'class'` opening phase + `heroClass` + `chooseClass(id)`, a `classDamage()`
+modifier consumed by `evalSelection` (replaced the hard-coded Bard `doubled`
+field with `mult`/`bonus`), Cleric heal in `cast()`, and a `classInfo` getter.
+UI (`OublexGame.jsx`): new `ClassPicker` screen for phase `class`, dynamic HP
+label from `classInfo.hpLabel` (was hard-coded "Bard"), damage meta now reads
+`ev.mult`/`ev.bonus`. **Verified:** 9-assertion engine test (each mechanic
+exact) + 30-seed x 4-class greedy sim through the real cast path = **all 4 win
+30/30**, damage clustered 147-154 avg (Mage highest, Cleric survives most/deals
+least — intended), so curve A holds, no retune. Clean `vite build`. Browser:
+injected an admin session, drove picker -> Mage -> fight -> cast live, no console
+errors. NOTE (out of scope, flag): lobby `SoloPlayCard` copy still says "get out
+with as much HP as you can" but scoring is cumulative damage now — fix when the
+how-to-play copy lands. Class is NOT yet persisted to the DB result row (would
+need a `hero_class` column + RPC change) — follow-up if the leaderboard should
+show class.
 
 ### 2026-06-28 — Wildcard rework + scoring change
 

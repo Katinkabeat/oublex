@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { SQModal } from '../../../../rae-side-quest/packages/sq-ui'
 import { loadDictionary } from '../../lib/dictionary.js'
-import { OublexRun, INTRO, TRANSITION, LETTER_VALUE } from '../../lib/oublexEngine.js'
+import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES } from '../../lib/oublexEngine.js'
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
 // engine, and calls onGameOver(score) once when the run ends (score = total
@@ -38,6 +38,7 @@ export default function OublexGame({ gameId, onGameOver }) {
     <div className="max-w-xl mx-auto">
       <RunBar room={run.room} phase={run.phase} count={run.rooms.length} />
 
+      {run.phase === 'class' && <ClassPicker onPick={(id) => apply(() => run.chooseClass(id))} />}
       {run.phase === 'intro' && <Intro onEnter={() => apply(() => run.enterDungeon())} />}
       {run.phase === 'fight' && <Fight run={run} apply={apply} />}
       {run.phase === 'victory' && <Victory run={run} onward={() => apply(() => run.pressOnward())} />}
@@ -119,6 +120,33 @@ function Rack({ tiles, word = [], onTile, readOnly, small }) {
   )
 }
 
+// The opening screen: choose one of the four classes for this run. Each bends a
+// single rule of the fight, so the pick is a real strategy choice for the day.
+function ClassPicker({ onPick }) {
+  return (
+    <div className="card">
+      <p className="font-display text-2xl text-center mb-1">Choose your delver</p>
+      <p className="text-sm text-center opacity-70 mb-4">One class for the whole run. Each bends a rule of the fight.</p>
+      <div className="grid gap-2.5">
+        {CLASSES.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onPick(c.id)}
+            className="flex items-center gap-3 text-left p-3 rounded-xl border-2 border-wordy-200 bg-wordy-50 hover:border-wordy-500 transition-colors"
+          >
+            <span className="text-2xl w-7 text-center shrink-0">{c.sigil}</span>
+            <span>
+              <span className="block font-display text-lg leading-tight">{c.name}</span>
+              <span className="block text-[13px] opacity-70 leading-snug">{c.blurb}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Intro({ onEnter }) {
   return (
     <div className="card text-center">
@@ -170,7 +198,7 @@ function Fight({ run, apply }) {
   let meta = null
   if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg</span>
   else if (ev.kind === 'word' && ev.valid)
-    meta = <span className="text-wordy-600">{ev.doubled ? `♪ ${ev.base} ×1.5 = ${ev.dmg} dmg` : `${ev.dmg} dmg`}</span>
+    meta = <span className="text-wordy-600">{ev.mult > 1 ? `${ev.base} ×${ev.mult} = ${ev.dmg} dmg` : `${ev.dmg} dmg`}</span>
   else if (ev.kind === 'word' && !ev.valid) meta = <span className="text-rose-500">the spellbook has never heard of it</span>
 
   const canCast = ev.kind === 'rune' || (ev.kind === 'word' && ev.valid)
@@ -180,7 +208,7 @@ function Fight({ run, apply }) {
     <>
       {wildId != null && <WildPicker onPick={pickWild} onCancel={() => setWildId(null)} />}
       <div className="card mb-3">
-        <HPBar label="♪ Bard · doubled-letter +50%" value={run.heroHP} max={run.heroMax} tone="hero" />
+        <HPBar label={run.classInfo.hpLabel} value={run.heroHP} max={run.heroMax} tone="hero" />
       </div>
 
       <div className="card mb-3">
@@ -234,7 +262,7 @@ function Loot({ run, take }) {
   return (
     <div className="card">
       <p className="font-extrabold text-green-600 text-center mb-3">You search the room. Choose your spoils:</p>
-      <HPBar label="♪ Bard · doubled-letter +50%" value={run.heroHP} max={run.heroMax} tone="hero" />
+      <HPBar label={run.classInfo.hpLabel} value={run.heroHP} max={run.heroMax} tone="hero" />
       <p className="text-xs font-bold opacity-70 mt-3 mb-1">Your current rack</p>
       <Rack tiles={run.rack} readOnly />
       <div className="flex gap-2.5 mt-4">
