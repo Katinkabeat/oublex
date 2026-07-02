@@ -93,6 +93,18 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 
 ## Session log
 
+### 2026-07-02 (post-launch) — Rook "Deathless" highlight
+
+Added Oublex's game-specific #highlights cheer to Rook: **`oublex_deathless`**
+fires when a linked player logs a 170+ damage run (the top "Deathless" clear-rank).
+Detection keys on `oublex_solo_results.completed_at > p_since` + `score >= 170`
+(clean append-only cursor). Wired in the Rook repo (config HYPE.enabled +
+messages.hypeDeathless (2 variants, Rae picked) + hype.js renderEvent +
+rook_hype.sql UNION + sq_set_hype_pref list); Rook commit `a6f6efb`, deployed +
+verified (RPC emits the event, message renders). Caveat: the results table has no
+win flag, so a rare death that racks up 170+ damage could also trigger it; 170 is
+a high enough bar that it's an acceptable proxy.
+
 ### 2026-07-02 (launch) — Rook integration + resume hardening + PUBLIC FLIP
 
 **Oublex solo v1 is PUBLIC.** `games_catalog.requires_access=false` (site 200).
