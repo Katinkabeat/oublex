@@ -93,6 +93,39 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 
 ## Session log
 
+### 2026-07-02 (launch) — Rook integration + resume hardening + PUBLIC FLIP
+
+**Oublex solo v1 is PUBLIC.** `games_catalog.requires_access=false` (site 200).
+
+- **Rook integration.** Added `{ key:"oublex", label:"Oublex", emoji:"🗝️" }` to the
+  Rook repo's `config.js` GAMES (auto-created #oublex channel + "Oublex player"
+  role + 🗝️ picker reaction — both verified via the Discord API). Added Oublex
+  UNIONs/CASE to `rook_leaderboards.sql`, `rook_weekly_points.sql` (solo),
+  `sq_streak_allgames.sql`, and `oublex: "damage dealt"` to `leaderboard.js`
+  METRIC. SQL applied to shared Supabase; verified all three functions return/
+  count oublex. Rook commit `238da1e`.
+  - **Deploy gotcha (→ Raeban c242):** the `rook` service user can't pull Forgejo
+    (`/opt/rook` stuck at 33c83fe). Deployed by copying config.js + leaderboard.js
+    to /opt/rook via `ssh raevm 'sudo -u rook tee ...'` then `systemctl restart rook`.
+
+- **One-attempt hardening — resume (direction B, Rae's pick).** Mirrors Snibble's
+  DB-backed daily state. New table **`oublex_daily_runs`** (migration
+  `oublex_daily_runs.sql`, RLS own-rows) holds a full engine snapshot as jsonb.
+  Reload / tab-close / device-switch now RESUMES the run instead of re-rolling
+  the seed (the old replay hole). Snapshot written on first action, updated each
+  move, deleted on game-over. Implementation: `rng.js` exposes mulberry32 state
+  (getState/setState); `OublexRun.snapshot()/loadSnapshot()`; `SoloGamePage`
+  loads the runs row → passes `initialSnapshot`/`onPersist` to `OublexGame`.
+  Verified: snapshot/restore byte-identical (node determinism test), browser
+  mid-run reload resumes, game-over writes result + clears the runs row,
+  post-completion "delved" gate holds. Oublex commit `c79fffc`.
+  - **Residual (→ c237):** delete-own RLS on `oublex_daily_runs` means a
+    determined user could delete their row via the API to force a fresh seed.
+    Honest/casual/cross-device closed; the API path is c237 (server write-guard +
+    midnight auto-submit). Rae flagged + accepted this for launch.
+
+- **Quill:** public launch announcement posted to #updates.
+
 ### 2026-07-02 (latest) — How-to-Play copy + picker rename
 
 Wrote the real How-to-Play modal (`HowToPlayModal.jsx`) via Raven in Oublex's
