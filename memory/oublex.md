@@ -93,6 +93,38 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 
 ## Session log
 
+### 2026-07-02 (later) — Overall difficulty retune + clear-rank
+
+Rae: "a win every day isn't challenging enough." Sims confirmed it — at the old
+curve even an *average* player (words ≤5) won 99% with 41 HP to spare. Built
+`scripts/difficulty-sim.mjs` (runtime curve override, 3 player tiers: optimal /
+average / casual). Key findings: hero HP and monster stats are the levers, but
+they're hypersensitive and the skill gap is a cliff — the moment a skilled
+player can lose, the pure-casual (≤3-letter) player hits 0%. So tune for the
+AVERAGE player, not the floor.
+
+**Decision (Rae): direction B — challenge = SCORE, not survival.** Keep survival
+high so nobody's shut out, but shave the fat HP cushion + add a rank to chase.
+Rae also asked to do it via MONSTERS, not hero HP (a shrinking HP bar is an
+obvious nerf to players; a monster with a bit more HP is invisible).
+
+Shipped (commit `048e97b`):
+- **Curve retune** in `bestiary.js`: HP 12/18/24/30/40 → **13/20/26/33/44**,
+  counter 4/6/8/10/12 → **5/7/9/11/13**. Sim: optimal ~99% win / average ~89%,
+  HP cushion cut from ~54 to ~25. Hero HP stays 100 (untouched, deliberately).
+- **Clear-rank** (`CLEAR_RANKS` + `clearRank()`/`nextRank()` in engine, shown on
+  the win EndScreen): a win is graded by total damage (same axis as leaderboard)
+  → Gravecrawler / Gutcutter (152) / Marrow-reaper (160) / Deathless (170).
+  Thresholds from the winning-score distribution (wins span ~140–196). End
+  screen shows rank + "N more damage to reach <next>" chase line. Names are
+  Oublex dark-gross voice — easy to rename via Raven later.
+
+Verified live: authed browser run (console auto-play through the dungeon) — win
+screen showed "Rank: Marrow-reaper / 8 more damage to reach Deathless" at 162
+dmg / 34 HP; loss screen shows no rank (correct). Also confirmed the `class`
+column write end-to-end (a run stored `class='mage'`). Both sim harnesses
+re-run clean. NOT Quilled (still gated).
+
 ### 2026-07-02 — Ranger balance retune + class analytics + sim harness
 
 Dino reported the **Ranger** class made the daily too easy. Analyzed before
