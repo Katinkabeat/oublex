@@ -30,6 +30,28 @@ export const CLASSES = [
 ]
 const CLASS_IDS = new Set(CLASSES.map(c => c.id))
 
+// Clear ranks — a *win* is graded by total damage dealt (the same axis as the
+// leaderboard), so there's always a higher clear to chase instead of just
+// "survived / didn't." Thresholds come from the winning-score distribution under
+// the shipped curve (sim: wins span ~140–196, most land 150–165; skilled median
+// ~159). Re-check with scripts/balance-sim.mjs if the curve changes. Ordered
+// high→low; clearRank() returns the first tier the score reaches.
+export const CLEAR_RANKS = [
+  { min: 170, name: 'Deathless',     note: 'Nothing down here got a real bite in.' },
+  { min: 160, name: 'Marrow-reaper', note: 'You left the rooms wet.' },
+  { min: 152, name: 'Gutcutter',     note: 'Messy, but they went down.' },
+  { min: 0,   name: 'Gravecrawler',  note: 'You crawled back out. Barely.' },
+]
+export function clearRank(score) {
+  return CLEAR_RANKS.find(r => score >= r.min) || CLEAR_RANKS[CLEAR_RANKS.length - 1]
+}
+// The next rank up and the score needed for it — powers the "chase" line on a
+// win. Returns null once the top rank is reached.
+export function nextRank(score) {
+  const higher = CLEAR_RANKS.filter(r => r.min > score).sort((a, b) => a.min - b.min)
+  return higher.length ? higher[0] : null
+}
+
 // The 5-room dungeon is resolved per run from the tiered bestiary (see
 // buildRooms): one monster per HP tier per day, one encounter + kill variant
 // each, seeded so the dungeon is identical for everyone on a given date but

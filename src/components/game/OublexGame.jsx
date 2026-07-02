@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { SQModal } from '../../../../rae-side-quest/packages/sq-ui'
 import { loadDictionary } from '../../lib/dictionary.js'
-import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES } from '../../lib/oublexEngine.js'
+import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRank } from '../../lib/oublexEngine.js'
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
 // engine, and calls onGameOver(score, heroClass) once when the run ends (score =
@@ -281,11 +281,24 @@ function Loot({ run, take }) {
 
 function EndScreen({ run }) {
   const won = run.phase === 'win'
+  const rank = won ? clearRank(run.totalDamage) : null
+  const next = won ? nextRank(run.totalDamage) : null
   return (
     <div className="card text-center">
       <div className="font-display text-2xl text-wordy-700 my-2">
         {won ? 'Dungeon cleared.' : `You fell in Room ${run.room + 1}.`}
       </div>
+      {won && (
+        <div className="my-3">
+          <div className="font-display text-xl text-wordy-800">Rank: {rank.name}</div>
+          <div className="text-sm opacity-80">{rank.note}</div>
+          <div className="text-xs opacity-70 mt-1">
+            {next
+              ? `${next.min - run.totalDamage} more damage to reach ${next.name}.`
+              : 'Top rank. Nothing left to prove down here.'}
+          </div>
+        </div>
+      )}
       <p className="leading-relaxed">
         Rooms cleared: <b>{run.roomsCleared}/5</b> · Total damage: <b>{run.totalDamage}</b> · HP left: <b>{run.heroHP}</b>
       </p>

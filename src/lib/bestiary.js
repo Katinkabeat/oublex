@@ -3,7 +3,8 @@
 // Each day's run seeds one monster per tier and one encounter + kill variant
 // per room (see OublexRun.buildRooms), so the dungeon is the same for everyone
 // on a given date but rotates day to day. HP and counter-damage are fixed per
-// tier (the sim-balanced curve 12/18/24/30/40 · 4/6/8/10/12); monsters are a
+// tier (the sim-balanced curve 13/20/26/33/44 · 5/7/9/11/13; retuned 2026-07-02
+// to burn off the too-large HP cushion — see scripts/balance-sim.mjs); monsters are a
 // narrative skin over it. Voice = Oublex's straight-dark-gross profile (NOT
 // Raven's friendly house voice): visceral, sensory, second person, no jokes.
 //
@@ -11,9 +12,9 @@
 // end with "Run complete." (the engine's final-room signal).
 
 export const TIERS = [
-  // ---- Tier 1 · 12 HP · counter 4 — small and revolting ----
+  // ---- Tier 1 · 13 HP · counter 5 — small and revolting ----
   {
-    hp: 12, counter: 4,
+    hp: 13, counter: 5,
     monsters: [
       { name: 'Gnashling',
         enc: [
@@ -128,9 +129,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 2 · 18 HP · counter 6 — bigger, meaner ----
+  // ---- Tier 2 · 20 HP · counter 7 — bigger, meaner ----
   {
-    hp: 18, counter: 6,
+    hp: 20, counter: 7,
     monsters: [
       { name: 'Mire Crawler',
         enc: [
@@ -245,9 +246,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 3 · 24 HP · counter 8 — nasty, dangerous ----
+  // ---- Tier 3 · 26 HP · counter 9 — nasty, dangerous ----
   {
-    hp: 24, counter: 8,
+    hp: 26, counter: 9,
     monsters: [
       { name: 'Bone Choir',
         enc: [
@@ -362,9 +363,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 4 · 30 HP · counter 10 — large, overwhelming ----
+  // ---- Tier 4 · 33 HP · counter 11 — large, overwhelming ----
   {
-    hp: 30, counter: 10,
+    hp: 33, counter: 11,
     monsters: [
       { name: 'Rust Ogre',
         enc: [
@@ -479,9 +480,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 5 · 40 HP · counter 12 · BOSS — climactic (kills end the run) ----
+  // ---- Tier 5 · 44 HP · counter 13 · BOSS — climactic (kills end the run) ----
   {
-    hp: 40, counter: 12,
+    hp: 44, counter: 13,
     monsters: [
       { name: 'The Lexivore',
         enc: [
