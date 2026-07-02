@@ -280,6 +280,53 @@ export class OublexRun {
     this.log = this.rooms[this.room].enc
   }
 
+  // ---- resume (persist an in-progress run so a reload continues it) ----
+  // A full snapshot of the mutable run state, including the RNG position and the
+  // resolved rooms (stored, not rebuilt, so a mid-run curve/bestiary deploy can't
+  // reshape a run already underway). JSON-safe → persisted to oublex_daily_runs.
+  snapshot() {
+    return {
+      v: 1,
+      gameId: this.gameId,
+      phase: this.phase,
+      heroClass: this.heroClass,
+      room: this.room,
+      heroHP: this.heroHP,
+      heroMax: this.heroMax,
+      rooms: this.rooms,
+      monsterHP: this.monsterHP,
+      nextId: this.nextId,
+      rack: this.rack,
+      word: this.word,
+      log: this.log,
+      lastRuneFlavor: this.lastRuneFlavor,
+      totalDamage: this.totalDamage,
+      runeIdx: this.runeIdx,
+      rngState: this.rng.getState(),
+    }
+  }
+
+  // Restore a run from a snapshot() payload (after the constructor's reset()).
+  // Overwrites every mutable field and pins the RNG back to its saved position.
+  loadSnapshot(s) {
+    this.phase = s.phase
+    this.heroClass = s.heroClass
+    this.room = s.room
+    this.heroHP = s.heroHP
+    this.heroMax = s.heroMax
+    this.rooms = s.rooms
+    this.monsterHP = s.monsterHP
+    this.nextId = s.nextId
+    this.rack = s.rack
+    this.word = s.word
+    this.log = s.log
+    this.lastRuneFlavor = s.lastRuneFlavor
+    this.totalDamage = s.totalDamage
+    this.runeIdx = s.runeIdx
+    this.rng.setState(s.rngState)
+    return this
+  }
+
   // ---- derived ----
   get classInfo() { return CLASSES.find(c => c.id === this.heroClass) || CLASSES[0] }
   get isGameOver() { return this.phase === 'win' || this.phase === 'dead' }

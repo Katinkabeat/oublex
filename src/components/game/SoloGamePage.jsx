@@ -11,31 +11,58 @@ import OublexGame from './OublexGame.jsx'
 import { supabase } from '../../lib/supabase.js'
 
 // Solo daily dungeon. gameId is the Atlantic YMD, so the seed (dungeon + tile
-// bag) is identical for everyone that day. One attempt per day: a finished run
-// writes its score once (ignoreDuplicates), and if today's row already exists
-// we show the result instead of a fresh playable run.
-//
-// Known v1 limitation: in-progress runs aren't persisted, so abandoning a run
-// before it ends (closing the tab) lets you replay the same seed. Hardening
-// (persist the run / write a row at start) is a follow-up, tracked on c93.
+// bag) is identical for everyone that day. One attempt per day:
+//   - A finished run's score is in oublex_solo_results → we show the result.
+//   - An in-progress run's full snapshot is in oublex_daily_runs → we RESUME it
+//     (reloading/leaving mid-run no longer re-rolls the same seed). The snapshot
+//     is written on the first action and updated on every move; it's deleted when
+//     the run ends. See oublex_daily_runs.sql. (Residual API-delete replay hole
+//     is deferred to c237's server-side write-guard.)
 export default function SoloGamePage({ session, profile, isAdmin }) {
   const { gameId } = useParams()
   const navigate = useNavigate()
   const userId = session?.user?.id
   const [existing, setExisting] = useState(undefined) // undefined=loading | null=none | {score}
+  const [resume, setResume] = useState(null) // in-progress run snapshot to restore, or null
 
   useEffect(() => {
     if (!userId || !gameId) { setExisting(null); return }
     let active = true
-    supabase
-      .from('oublex_solo_results')
-      .select('score')
-      .eq('user_id', userId)
-      .eq('play_date', gameId)
-      .maybeSingle()
-      .then(({ data }) => { if (active) setExisting(data ?? null) })
+    ;(async () => {
+      // Finished run wins: if a result row exists, show it and don't resume.
+      const { data: done } = await supabase
+        .from('oublex_solo_results')
+        .select('score')
+        .eq('user_id', userId)
+        .eq('play_date', gameId)
+        .maybeSingle()
+      if (!active) return
+      if (done) { setExisting(done); return }
+      // Otherwise look for an in-progress snapshot to resume.
+      const { data: run } = await supabase
+        .from('oublex_daily_runs')
+        .select('run_state')
+        .eq('user_id', userId)
+        .eq('play_date', gameId)
+        .maybeSingle()
+      if (!active) return
+      if (run?.run_state) setResume(run.run_state)
+      setExisting(null)
+    })()
     return () => { active = false }
   }, [userId, gameId])
+
+  // Save the in-progress run snapshot after each move (upsert on the daily PK).
+  function persistRun(snapshot) {
+    if (!userId || !gameId) return
+    supabase
+      .from('oublex_daily_runs')
+      .upsert(
+        { user_id: userId, play_date: gameId, run_state: snapshot, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,play_date' },
+      )
+      .then(({ error }) => { if (error) console.error('[oublex] persist run failed', error) })
+  }
 
   function handleGameOver(score, heroClass) {
     if (!userId || !gameId) return
@@ -46,21 +73,26 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
         { onConflict: 'user_id,play_date', ignoreDuplicates: true },
       )
       .then(({ error }) => { if (error) console.error('[oublex] record result failed', error) })
-  }
-
-  // Admin-only test tool: wipe today's row (DELETE-own RLS) so the daily can be
-  // replayed. Gated to admins in the UI below; the policy only allows self-deletes.
-  function handleReset() {
-    if (!userId || !gameId) return
+    // The run is finished; drop the in-progress snapshot so it can't be resumed.
     supabase
-      .from('oublex_solo_results')
+      .from('oublex_daily_runs')
       .delete()
       .eq('user_id', userId)
       .eq('play_date', gameId)
-      .then(({ error }) => {
-        if (error) { console.error('[oublex] reset failed', error); return }
-        setExisting(null) // drop straight back into a fresh run of today's seed
-      })
+      .then(({ error }) => { if (error) console.error('[oublex] clear run failed', error) })
+  }
+
+  // Admin-only test tool: wipe today's result AND any in-progress snapshot
+  // (DELETE-own RLS) so the daily can be replayed. Gated to admins in the UI.
+  function handleReset() {
+    if (!userId || !gameId) return
+    Promise.all([
+      supabase.from('oublex_solo_results').delete().eq('user_id', userId).eq('play_date', gameId),
+      supabase.from('oublex_daily_runs').delete().eq('user_id', userId).eq('play_date', gameId),
+    ]).then(() => {
+      setResume(null)
+      setExisting(null) // drop straight back into a fresh run of today's seed
+    })
   }
 
   let body
@@ -89,7 +121,14 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
       </div>
     )
   } else {
-    body = <OublexGame gameId={gameId} onGameOver={handleGameOver} />
+    body = (
+      <OublexGame
+        gameId={gameId}
+        onGameOver={handleGameOver}
+        initialSnapshot={resume}
+        onPersist={persistRun}
+      />
+    )
   }
 
   return (

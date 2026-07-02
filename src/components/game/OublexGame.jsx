@@ -6,7 +6,11 @@ import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRan
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
 // engine, and calls onGameOver(score, heroClass) once when the run ends (score =
 // total damage dealt; heroClass = chosen class, persisted for balance analytics).
-export default function OublexGame({ gameId, onGameOver }) {
+//
+// Resume: if initialSnapshot is passed (an in-progress run from oublex_daily_runs)
+// the engine is restored to it instead of starting fresh. After every move that
+// isn't the final one, onPersist(snapshot) saves the run so a reload continues it.
+export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPersist }) {
   const [dict, setDict] = useState(null)
   const runRef = useRef(null)
   const reportedRef = useRef(false)
@@ -18,7 +22,11 @@ export default function OublexGame({ gameId, onGameOver }) {
     return () => { active = false }
   }, [])
 
-  if (dict && !runRef.current) runRef.current = new OublexRun(gameId, dict)
+  if (dict && !runRef.current) {
+    const r = new OublexRun(gameId, dict)
+    if (initialSnapshot) r.loadSnapshot(initialSnapshot)
+    runRef.current = r
+  }
   const run = runRef.current
 
   function apply(fn) {
@@ -26,6 +34,10 @@ export default function OublexGame({ gameId, onGameOver }) {
     if (run.isGameOver && !reportedRef.current) {
       reportedRef.current = true
       onGameOver?.(run.score, run.heroClass)
+    } else if (!run.isGameOver) {
+      // Persist the in-progress run after each move (starts on the class pick,
+      // the first action) so a reload resumes here instead of re-rolling the seed.
+      onPersist?.(run.snapshot())
     }
     force()
   }
