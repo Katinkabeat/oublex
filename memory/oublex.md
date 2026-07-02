@@ -93,6 +93,20 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 
 ## Session log
 
+### 2026-07-02 (latest) — How-to-Play copy + picker rename
+
+Wrote the real How-to-Play modal (`HowToPlayModal.jsx`) via Raven in Oublex's
+dark-gross-but-clear voice (was placeholder "Instructions coming soon"). Covers
+daily/one-attempt, the class picks + rules, spell-to-strike, runes, loot,
+win/fall, and the leaderboard + clear-ranks. Includes a line that **damage
+counts even on a death** (verified in code: the result row is written on any
+game-over, and `oublex_solo_leaderboard` filters only by date, no win check).
+Renamed the in-game picker heading **"Choose your delver" → "Choose your class"**
+(Rae disliked "delver"). Verified both live in preview. Commit `9a5ef78`. Not
+Quilled (help text). Voice/copy gotcha logged: show player-facing names/copy to
+Rae before shipping — the clear-rank names went out unilaterally earlier and she
+(fairly) flagged it.
+
 ### 2026-07-02 (later) — Overall difficulty retune + clear-rank
 
 Rae: "a win every day isn't challenging enough." Sims confirmed it — at the old
