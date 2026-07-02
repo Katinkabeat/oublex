@@ -125,7 +125,7 @@ function Rack({ tiles, word = [], onTile, readOnly, small }) {
 function ClassPicker({ onPick }) {
   return (
     <div className="card">
-      <p className="font-display text-2xl text-center mb-1">Choose your delver</p>
+      <p className="font-display text-2xl text-center mb-1">Choose your class</p>
       <p className="text-sm text-center opacity-70 mb-4">One class for the whole run. Each bends a rule of the fight.</p>
       <div className="grid gap-2.5">
         {CLASSES.map((c) => (
