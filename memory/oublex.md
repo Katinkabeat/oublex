@@ -93,6 +93,35 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 
 ## Session log
 
+### 2026-07-02 — Ranger balance retune + class analytics + sim harness
+
+Dino reported the **Ranger** class made the daily too easy. Analyzed before
+changing — live data was useless (only 5 rows / 2 players, and `class` was never
+persisted). Built `scripts/balance-sim.mjs`, an **engine-truth** balance harness:
+it plays each class across 80 seeds under an OPTIMAL solver and a CASUAL
+(short-words-only, ≤3) solver, scoring candidate words through the engine's own
+`evalSelection()` so it can't drift from shipped logic. Re-run it after any
+class/curve change.
+
+Finding: under optimal play all 4 classes are balanced (~100% win). The problem
+was the casual player — old Ranger (double-shot on 2–3 letter words) won **100% /
+54 HP left** while the field won ~0–24%. **Key lesson: multiplier size is a red
+herring; word length is the lever.** Softening 2×→1.5× left casual win at 100%
+(3-letter words are too abundant). Fix: Ranger double-shot now gated to
+**2-letter words only** (`len === 2` in `oublexEngine.js` classDamage). Post-fix
+sim: casual Ranger 41% / 14 HP — still the most accessible class but not a free
+win; optimal unaffected. Blurb → "A 2-letter word strikes twice — if you know
+the little ones."
+
+Instrumentation: added nullable `class` column to `oublex_solo_results`
+(migration `oublex_solo_results_add_class.sql`, applied to shared Supabase).
+Client threads `run.heroClass` into the result upsert (`OublexGame.jsx` →
+`SoloGamePage.jsx`). Deliberately kept OUT of the leaderboard RPCs — analytics
+only, preserving the "class not shown on leaderboard" decision. Existing rows
+stay NULL (not backfillable). Verified: build clean, new blurb renders live,
+class write round-trips at the DB layer. NOT Quilled (still gated). Commit
+`20c0234`.
+
 ### 2026-06-28 — Four classes (the v2 class build)
 
 v1 shipped Bard-only; the other 3 classes were named but never designed and the
