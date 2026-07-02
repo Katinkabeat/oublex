@@ -123,7 +123,11 @@ Verified live: authed browser run (console auto-play through the dungeon) — wi
 screen showed "Rank: Marrow-reaper / 8 more damage to reach Deathless" at 162
 dmg / 34 HP; loss screen shows no rank (correct). Also confirmed the `class`
 column write end-to-end (a run stored `class='mage'`). Both sim harnesses
-re-run clean. NOT Quilled (still gated).
+re-run clean.
+
+**Quill is now ON for Oublex** (Rae, 2026-07-02): the game is close to finished
+and playable, so player-facing changes now get a Discord `#updates` post to keep
+testers informed. Posted the Ranger + difficulty + clear-rank changes at wrap-up.
 
 ### 2026-07-02 — Ranger balance retune + class analytics + sim harness
 
