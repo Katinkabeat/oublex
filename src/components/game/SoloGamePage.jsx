@@ -37,12 +37,12 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
     return () => { active = false }
   }, [userId, gameId])
 
-  function handleGameOver(score) {
+  function handleGameOver(score, heroClass) {
     if (!userId || !gameId) return
     supabase
       .from('oublex_solo_results')
       .upsert(
-        { user_id: userId, play_date: gameId, score },
+        { user_id: userId, play_date: gameId, score, class: heroClass ?? null },
         { onConflict: 'user_id,play_date', ignoreDuplicates: true },
       )
       .then(({ error }) => { if (error) console.error('[oublex] record result failed', error) })

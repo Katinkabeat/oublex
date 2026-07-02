@@ -22,7 +22,7 @@ export const CLASSES = [
     blurb:'Go long. A 6-letter word hits 1.5x, a full 7-tile word 2x.',
     hpLabel:'✶ Mage · long-word surge' },
   { id:'ranger', sigil:'➹', name:'Ranger',
-    blurb:'Go fast. Short words of 2 to 3 letters strike twice.',
+    blurb:'Go fast. A 2-letter word strikes twice — if you know the little ones.',
     hpLabel:'➹ Ranger · double shot' },
   { id:'cleric', sigil:'✚', name:'Cleric',
     blurb:'Drain life. Heal a quarter of the damage you deal.',
@@ -159,7 +159,13 @@ export class OublexRun {
         if (len >= 6) return { mult: 1.5, label: 'long-word surge' }
         return { mult: 1, label: '' }
       case 'ranger':
-        if (len >= 2 && len <= 3) return { mult: 2, label: 'double shot' }
+        // Double-shot is gated to 2-letter words only. Gating on length (not the
+        // 2x size) is the real balance lever: 3-letter words are so abundant that
+        // doubling them let a short-word-only player auto-win (sim: 100% win, 54
+        // HP left). Restricting to 2-letter words rewards knowing the little
+        // words (QI/ZA/XU…) and pulls casual Ranger back to ~74% win. See
+        // scripts/balance-sim.mjs. (Ranger balance retune, c93, 2026-07-02.)
+        if (len === 2) return { mult: 2, label: 'double shot' }
         return { mult: 1, label: '' }
       case 'cleric':
         return { mult: 1, label: '' }

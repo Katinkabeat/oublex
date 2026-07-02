@@ -4,8 +4,8 @@ import { loadDictionary } from '../../lib/dictionary.js'
 import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES } from '../../lib/oublexEngine.js'
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
-// engine, and calls onGameOver(score) once when the run ends (score = total
-// damage dealt across the run).
+// engine, and calls onGameOver(score, heroClass) once when the run ends (score =
+// total damage dealt; heroClass = chosen class, persisted for balance analytics).
 export default function OublexGame({ gameId, onGameOver }) {
   const [dict, setDict] = useState(null)
   const runRef = useRef(null)
@@ -25,7 +25,7 @@ export default function OublexGame({ gameId, onGameOver }) {
     fn()
     if (run.isGameOver && !reportedRef.current) {
       reportedRef.current = true
-      onGameOver?.(run.score)
+      onGameOver?.(run.score, run.heroClass)
     }
     force()
   }
