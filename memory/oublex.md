@@ -293,3 +293,6 @@ AI), real how-to-play copy, one-attempt hardening, Rook integration, then flip
   - Update other games' theme-flash localStorage fallback to include `oublex-theme`
   - Build the actual game (lobby cards, board, scoring)
   - `gh repo create` + push
+
+## 2026-07-02 — Removed "← you" leaderboard self-marker (Rae request)
+Dropped the "← you" text label (Wordy: "(you)") from the leaderboard row in StatsPage. The `isYou`/`isMe` prop still drives the row highlight (bg-white/15 ring) — only the redundant text was removed. In-match "(you)" during live games left as-is (not a leaderboard). No Quill post (Rae's call, too small).
