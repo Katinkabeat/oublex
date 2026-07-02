@@ -22,7 +22,7 @@ export const CLASSES = [
     blurb:'Go long. A 6-letter word hits 1.5x, a full 7-tile word 2x.',
     hpLabel:'✶ Mage · long-word surge' },
   { id:'ranger', sigil:'➹', name:'Ranger',
-    blurb:'Go fast. A 2-letter word strikes twice — if you know the little ones.',
+    blurb:'Go fast. A 2-letter word strikes twice, if you know the little ones.',
     hpLabel:'➹ Ranger · double shot' },
   { id:'cleric', sigil:'✚', name:'Cleric',
     blurb:'Drain life. Heal a quarter of the damage you deal.',
