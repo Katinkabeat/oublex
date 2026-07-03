@@ -66,20 +66,15 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
 
   function handleGameOver(score, heroClass) {
     if (!userId || !gameId) return
+    // Writes go through the SECURITY DEFINER guard (oublex_record_solo_result):
+    // it stamps user_id from auth.uid(), rejects any non-today play_date (past
+    // days immutable, c237), records first-result-wins, AND deletes the
+    // in-progress snapshot server-side. The snapshot cleanup lives in the RPC
+    // (not here) so delete-own can be dropped — that's what closes the
+    // "delete my run to re-roll the same seed" farm.
     supabase
-      .from('oublex_solo_results')
-      .upsert(
-        { user_id: userId, play_date: gameId, score, class: heroClass ?? null },
-        { onConflict: 'user_id,play_date', ignoreDuplicates: true },
-      )
+      .rpc('oublex_record_solo_result', { p_play_date: gameId, p_score: score, p_class: heroClass ?? null })
       .then(({ error }) => { if (error) console.error('[oublex] record result failed', error) })
-    // The run is finished; drop the in-progress snapshot so it can't be resumed.
-    supabase
-      .from('oublex_daily_runs')
-      .delete()
-      .eq('user_id', userId)
-      .eq('play_date', gameId)
-      .then(({ error }) => { if (error) console.error('[oublex] clear run failed', error) })
   }
 
   let body
