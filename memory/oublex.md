@@ -296,3 +296,12 @@ AI), real how-to-play copy, one-attempt hardening, Rook integration, then flip
 
 ## 2026-07-02 — Removed "← you" leaderboard self-marker (Rae request)
 Dropped the "← you" text label (Wordy: "(you)") from the leaderboard row in StatsPage. The `isYou`/`isMe` prop still drives the row highlight (bg-white/15 ring) — only the redundant text was removed. In-match "(you)" during live games left as-is (not a leaderboard). No Quill post (Rae's call, too small).
+
+## 2026-07-02 — Server-side write guard + daily_runs re-roll close (c237)
+Closed TWO cheats on the solo daily:
+1. **Past-board padding** — `oublex_solo_results` was a direct client upsert (`play_date` from route param, RLS insert/update-own, no date check) → after midnight a still-open session could pad yesterday's board.
+2. **Seed re-roll farm** (the c93/c243 residual) — `oublex_daily_runs` had delete-own, so a determined user could DELETE their in-progress snapshot via the API to force a fresh roll of the same seed and retry the daily.
+- New `supabase/migrations/oublex_solo_results_write_guard.sql` (applied to prod via pooler): SECDEF `oublex_record_solo_result(p_play_date, p_score, p_class)` — stamps user_id, **STRICT today-only**, first-result-wins (on conflict do nothing), AND deletes the daily_runs snapshot itself. Doing cleanup in the RPC is what let me drop `oublex_daily_runs_delete_own` (closes the re-roll). Also dropped `oublex_solo_results` insert/update/**delete**-own (the admin reset button was already removed in c243, and delete-own would've let a user delete today's result to replay). `select_all` + daily_runs insert/select/update-own stay (resume still works, load path checks results-first so a post-finish snapshot is inert).
+- `src/components/game/SoloGamePage.jsx`: `handleGameOver` now calls the RPC and no longer client-deletes the snapshot (server does it).
+- Like Yahdle, strict-only means a run finished after its day ended isn't recorded (rare one-sitting dungeon). No client "day ended" note added inside OublexGame yet — minor UX nicety, flagged.
+- Zero-downtime rollout: RPC applied first, client pushed (commit 3498eed), live bundle confirmed, then policies dropped. First Pages deploy failed transiently ("try again later") — re-ran. Guard SQL-verified (past→reject, today→allow). Authed play-path not clicked through (hub-login bounce) — Rae to confirm a full run once.

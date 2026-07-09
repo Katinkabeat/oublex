@@ -10,7 +10,7 @@ import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRan
 // Resume: if initialSnapshot is passed (an in-progress run from oublex_daily_runs)
 // the engine is restored to it instead of starting fresh. After every move that
 // isn't the final one, onPersist(snapshot) saves the run so a reload continues it.
-export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPersist }) {
+export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPersist, saveState, onRetrySave }) {
   const [dict, setDict] = useState(null)
   const runRef = useRef(null)
   const reportedRef = useRef(false)
@@ -55,7 +55,9 @@ export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPers
       {run.phase === 'fight' && <Fight run={run} apply={apply} />}
       {run.phase === 'victory' && <Victory run={run} onward={() => apply(() => run.pressOnward())} />}
       {run.phase === 'loot' && <Loot run={run} take={(k) => apply(() => run.takeLoot(k))} />}
-      {(run.phase === 'win' || run.phase === 'dead') && <EndScreen run={run} />}
+      {(run.phase === 'win' || run.phase === 'dead') && (
+        <EndScreen run={run} saveState={saveState} onRetrySave={onRetrySave} />
+      )}
     </div>
   )
 }
@@ -291,7 +293,7 @@ function Loot({ run, take }) {
   )
 }
 
-function EndScreen({ run }) {
+function EndScreen({ run, saveState, onRetrySave }) {
   const won = run.phase === 'win'
   const rank = won ? clearRank(run.totalDamage) : null
   const next = won ? nextRank(run.totalDamage) : null
@@ -314,9 +316,28 @@ function EndScreen({ run }) {
       <p className="leading-relaxed">
         Rooms cleared: <b>{run.roomsCleared}/5</b> · Total damage: <b>{run.totalDamage}</b> · HP left: <b>{run.heroHP}</b>
       </p>
-      <p className="text-xs opacity-70 mt-2">
-        Today's run is logged. One attempt per day. The leaderboard ranks by total damage dealt.
-      </p>
+      <SaveStatus saveState={saveState} onRetrySave={onRetrySave} />
     </div>
   )
+}
+
+// The result write can fail (usually a stale token from a backgrounded tab).
+// Reflect the true save state instead of claiming the run is logged when it
+// isn't — a silent failure both loses the score and traps the player replaying.
+function SaveStatus({ saveState, onRetrySave }) {
+  if (saveState === 'error') {
+    return (
+      <div className="mt-3">
+        <p className="text-sm text-rose-500 font-bold">Couldn't save your run.</p>
+        <button className="btn-primary mt-2" onClick={onRetrySave}>Retry saving</button>
+        <p className="text-[11px] opacity-60 mt-2">
+          Your run is held safely and will resume if you leave — nothing is lost until it saves.
+        </p>
+      </div>
+    )
+  }
+  const msg = saveState === 'saved'
+    ? 'Today\'s run is logged. One attempt per day. The leaderboard ranks by total damage dealt.'
+    : 'Saving your run…'
+  return <p className="text-xs opacity-70 mt-2">{msg}</p>
 }

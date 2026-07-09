@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   SQBoardShell,
@@ -24,6 +24,8 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
   const userId = session?.user?.id
   const [existing, setExisting] = useState(undefined) // undefined=loading | null=none | {score}
   const [resume, setResume] = useState(null) // in-progress run snapshot to restore, or null
+  const [saveState, setSaveState] = useState('idle') // idle | saving | error | saved
+  const lastResultRef = useRef(null) // {score, heroClass} of the finished run, for retry
 
   useEffect(() => {
     if (!userId || !gameId) { setExisting(null); return }
@@ -64,17 +66,44 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
       .then(({ error }) => { if (error) console.error('[oublex] persist run failed', error) })
   }
 
+  // Persist a finished run's result. Writes go through the SECURITY DEFINER
+  // guard (oublex_record_solo_result): it stamps user_id from auth.uid(),
+  // rejects any non-today play_date (past days immutable, c237), records
+  // first-result-wins, AND deletes the in-progress snapshot server-side. The
+  // snapshot cleanup lives in the RPC (not here) so delete-own can be dropped —
+  // that's what closes the "delete my run to re-roll the same seed" farm.
+  //
+  // This MUST NOT be fire-and-forget: a swallowed failure silently drops the
+  // score AND (because the snapshot is only deleted on success) leaves the run
+  // resumable, trapping the player re-finishing the same dungeon. The common
+  // failure is a stale/expired access token when a mobile tab was backgrounded
+  // long enough for supabase-js's refresh timer to be throttled — so on failure
+  // we refresh the session and retry before surfacing a visible error. Until a
+  // write succeeds the snapshot stays put, so the run is never lost.
+  async function recordResult(score, heroClass) {
+    setSaveState('saving')
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { error } = await supabase.rpc('oublex_record_solo_result', {
+        p_play_date: gameId, p_score: score, p_class: heroClass ?? null,
+      })
+      if (!error) { setSaveState('saved'); return }
+      console.error(`[oublex] record result failed (attempt ${attempt + 1})`, error)
+      // Renew a possibly-expired token, then back off briefly before retrying.
+      await supabase.auth.refreshSession().catch(() => {})
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+    }
+    setSaveState('error')
+  }
+
   function handleGameOver(score, heroClass) {
     if (!userId || !gameId) return
-    // Writes go through the SECURITY DEFINER guard (oublex_record_solo_result):
-    // it stamps user_id from auth.uid(), rejects any non-today play_date (past
-    // days immutable, c237), records first-result-wins, AND deletes the
-    // in-progress snapshot server-side. The snapshot cleanup lives in the RPC
-    // (not here) so delete-own can be dropped — that's what closes the
-    // "delete my run to re-roll the same seed" farm.
-    supabase
-      .rpc('oublex_record_solo_result', { p_play_date: gameId, p_score: score, p_class: heroClass ?? null })
-      .then(({ error }) => { if (error) console.error('[oublex] record result failed', error) })
+    lastResultRef.current = { score, heroClass }
+    recordResult(score, heroClass)
+  }
+
+  function retrySave() {
+    const r = lastResultRef.current
+    if (r) recordResult(r.score, r.heroClass)
   }
 
   let body
@@ -99,6 +128,8 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
         onGameOver={handleGameOver}
         initialSnapshot={resume}
         onPersist={persistRun}
+        saveState={saveState}
+        onRetrySave={retrySave}
       />
     )
   }
