@@ -10,7 +10,7 @@ import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRan
 // Resume: if initialSnapshot is passed (an in-progress run from oublex_daily_runs)
 // the engine is restored to it instead of starting fresh. After every move that
 // isn't the final one, onPersist(snapshot) saves the run so a reload continues it.
-export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPersist, saveState, onRetrySave }) {
+export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPersist, saveState, onRetrySave, dayClosed }) {
   const [dict, setDict] = useState(null)
   const runRef = useRef(null)
   const reportedRef = useRef(false)
@@ -56,7 +56,7 @@ export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPers
       {run.phase === 'victory' && <Victory run={run} onward={() => apply(() => run.pressOnward())} />}
       {run.phase === 'loot' && <Loot run={run} take={(k) => apply(() => run.takeLoot(k))} />}
       {(run.phase === 'win' || run.phase === 'dead') && (
-        <EndScreen run={run} saveState={saveState} onRetrySave={onRetrySave} />
+        <EndScreen run={run} saveState={saveState} onRetrySave={onRetrySave} dayClosed={dayClosed} />
       )}
     </div>
   )
@@ -293,7 +293,7 @@ function Loot({ run, take }) {
   )
 }
 
-function EndScreen({ run, saveState, onRetrySave }) {
+function EndScreen({ run, saveState, onRetrySave, dayClosed }) {
   const won = run.phase === 'win'
   const rank = won ? clearRank(run.totalDamage) : null
   const next = won ? nextRank(run.totalDamage) : null
@@ -316,7 +316,23 @@ function EndScreen({ run, saveState, onRetrySave }) {
       <p className="leading-relaxed">
         Rooms cleared: <b>{run.roomsCleared}/5</b> · Total damage: <b>{run.totalDamage}</b> · HP left: <b>{run.heroHP}</b>
       </p>
-      <SaveStatus saveState={saveState} onRetrySave={onRetrySave} />
+      {dayClosed
+        ? <DayEnded />
+        : <SaveStatus saveState={saveState} onRetrySave={onRetrySave} />}
+    </div>
+  )
+}
+
+// The run crossed midnight, so its day is over and the server won't record it.
+// Shown in place of SaveStatus, whose "Couldn't save · Retry" state would offer
+// a write that the play_date guard rejects every time.
+function DayEnded() {
+  return (
+    <div className="mt-3">
+      <p className="font-display text-lg text-wordy-700">Day ended 🌙</p>
+      <p className="text-sm opacity-70 mt-1">
+        This dungeon's day ended at midnight, so this run won't be recorded. Come back for today's dungeon.
+      </p>
     </div>
   )
 }

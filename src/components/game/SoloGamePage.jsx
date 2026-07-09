@@ -9,6 +9,7 @@ import AvatarMenu from '../lobby/AvatarMenu.jsx'
 import HeaderRight from '../HeaderRight.jsx'
 import OublexGame from './OublexGame.jsx'
 import { supabase } from '../../lib/supabase.js'
+import { atlanticYMD } from '../../lib/rng.js'
 
 // Solo daily dungeon. gameId is the Atlantic YMD, so the seed (dungeon + tile
 // bag) is identical for everyone that day. One attempt per day:
@@ -26,6 +27,12 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
   const [resume, setResume] = useState(null) // in-progress run snapshot to restore, or null
   const [saveState, setSaveState] = useState('idle') // idle | saving | error | saved
   const lastResultRef = useRef(null) // {score, heroClass} of the finished run, for retry
+
+  // True once this dungeon's Atlantic day has passed. A run finished after its
+  // day rolled over can't be recorded — oublex_record_solo_result rejects any
+  // non-today play_date (past days are immutable, per c237). Say so on the end
+  // screen instead of retrying a write that can never succeed.
+  const dayClosed = gameId !== atlanticYMD()
 
   useEffect(() => {
     if (!userId || !gameId) { setExisting(null); return }
@@ -97,6 +104,7 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
 
   function handleGameOver(score, heroClass) {
     if (!userId || !gameId) return
+    if (dayClosed) return // the day rolled over; the end-screen note handles it, don't hit a guaranteed rejection
     lastResultRef.current = { score, heroClass }
     recordResult(score, heroClass)
   }
@@ -130,6 +138,7 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
         onPersist={persistRun}
         saveState={saveState}
         onRetrySave={retrySave}
+        dayClosed={dayClosed}
       />
     )
   }
