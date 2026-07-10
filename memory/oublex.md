@@ -93,6 +93,32 @@ Frontend: `lib/multiplayerActions.js`, `hooks/useMultiplayerLobby.js`,
 
 ## Session log
 
+### 2026-07-09 — "Day ended" note when a run finishes after rollover (c246)
+
+Commit `d3bed3a`. `SoloGamePage.jsx` computes `dayClosed = gameId !==
+atlanticYMD()` and threads it through `OublexGame` into `EndScreen`.
+`handleGameOver` early-returns when the day has rolled over, and `EndScreen`
+renders a new `DayEnded` block instead of `SaveStatus`: *"Day ended 🌙 / This
+dungeon's day ended at midnight, so this run won't be recorded. Come back for
+today's dungeon."* The run outcome (rooms cleared / damage / HP) still shows.
+
+**Gotcha this fixed:** it was never a silent skip. `oublex_record_solo_result`
+rejected the write, `recordResult` retried 3x with `refreshSession()`, and the
+player saw **"Couldn't save your run." + a "Retry saving" button** that could
+never succeed, next to "nothing is lost until it saves", which is false for a
+closed day. Anything rendering `SaveStatus` must check `dayClosed` first.
+
+**Verification recipe** (the standalone app bounces to the SQ hub login):
+inject a fake session into `localStorage['sb-yyhewndblruwxsrqzart-auth-token']`
+with a future `expires_at`. supabase-js `getSession()` reads it straight from
+storage without verifying the signature, so the app renders. Then open
+`/oublex/solo/<a past YMD>` and play a run to death. `persist run failed` 401s
+in the console are expected with the fake session; the thing to assert is that
+**no `record result failed` line appears**.
+
+Sibling bug found while sweeping the other daily games: Rungles was silently
+re-dating cross-midnight runs onto today's board (fixed same day, c257).
+
 ### 2026-07-02 (post-launch) — Rook "Deathless" highlight
 
 Added Oublex's game-specific #highlights cheer to Rook: **`oublex_deathless`**
