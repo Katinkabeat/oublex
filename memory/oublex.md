@@ -3,6 +3,15 @@
 Per the SQ session memory convention, update this file at the end of every
 Oublex work session with: what changed, what's pending, and any gotchas.
 
+**2026-07-12 (c274):** cross-game notification-tap routing fix. `main.jsx` now
+calls `installNotificationNav()` (new sq-ui helper) — the hub SW posts a
+`{type:'NAVIGATE', url}` message on a push tap and this navigates the already-open
+app to the target board. `clients.openWindow()` was a no-op inside an already-running
+installed PWA on Android, the root cause of taps doing nothing / opening the wrong
+board. Commit `2f55c4c`. Substantive fix is in the hub (`public/sw.js` +
+`sq-ui/utils/notificationNav.js`); Oublex only wires the receiver. See auto-memory
+`feedback_sq_notification_click_routing`.
+
 ## Game overview
 
 A daily word-dungeon crawl
