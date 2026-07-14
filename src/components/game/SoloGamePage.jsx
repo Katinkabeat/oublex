@@ -125,7 +125,7 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
         <p className="text-xs opacity-70 mt-2">One run a day. The dungeon resets tomorrow.</p>
         <div className="flex gap-2 justify-center mt-4">
           <button className="btn-secondary" onClick={() => navigate('/')}>← Lobby</button>
-          <button className="btn-primary" onClick={() => navigate('/stats')}>Leaderboard</button>
+          <button className="btn-primary" onClick={() => navigate('/stats')}>🏆 Leaderboard</button>
         </div>
       </div>
     )
