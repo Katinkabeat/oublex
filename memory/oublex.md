@@ -3,14 +3,17 @@
 Per the SQ session memory convention, update this file at the end of every
 Oublex work session with: what changed, what's pending, and any gotchas.
 
-**2026-07-14:** end screen now carries the canonical SQ daily exit row —
+**2026-07-14 (c279):** end screen now carries the canonical SQ daily exit row —
 `← Lobby` (btn-secondary) + `🏆 Leaderboard` (btn-primary) — in `EndScreen`
-(`OublexGame.jsx`), rendered unconditionally. Dino reported the fail screen had
-no leaderboard link "like the win one does"; in fact **neither** did. Oublex's
-only Leaderboard button lived on SoloGamePage's "You've delved today" card
-(shown when you re-enter after a recorded run), which is what he'd have seen.
-Yahdle/Rungles/Snibble all put the row on the daily end screen and never gate it
-by outcome or save state — Oublex was the outlier. Commit `b9ba163`.
+(`OublexGame.jsx`), rendered unconditionally (win, fail, day-closed alike).
+Dino reported the fail screen had no leaderboard link "like the win one does";
+in fact **neither** did. Root cause: **c240** ("End-of-daily → leaderboard
+shortcut, all games") marked Oublex "NO WORK NEEDED — already ships the exact
+pattern," but the buttons it found were on SoloGamePage's "You've delved today"
+**re-entry panel**, not on the run's end screen. Different surface, so the sweep
+closed a game it had never actually covered. Yahdle/Rungles/Snibble all put the
+row on the end screen itself and never gate it by outcome or save state.
+Commit `b9ba163`.
 Verified locally by session-injection on `localhost:5189` + playing a past-day
 run (`/solo/2026-07-10`, so `dayClosed` → no DB write) to death via single-tile
 rune spam; row rendered on the fall and routed to `/oublex/stats`.
