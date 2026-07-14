@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { SQModal } from '../../../../rae-side-quest/packages/sq-ui'
 import { loadDictionary } from '../../lib/dictionary.js'
 import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRank } from '../../lib/oublexEngine.js'
@@ -294,6 +295,7 @@ function Loot({ run, take }) {
 }
 
 function EndScreen({ run, saveState, onRetrySave, dayClosed }) {
+  const navigate = useNavigate()
   const won = run.phase === 'win'
   const rank = won ? clearRank(run.totalDamage) : null
   const next = won ? nextRank(run.totalDamage) : null
@@ -319,6 +321,13 @@ function EndScreen({ run, saveState, onRetrySave, dayClosed }) {
       {dayClosed
         ? <DayEnded />
         : <SaveStatus saveState={saveState} onRetrySave={onRetrySave} />}
+      {/* Canonical SQ daily exit row (Yahdle/Rungles/Snibble): never gated by
+          outcome or save state — cleared, fell, or day-closed all get the same
+          two doors out. */}
+      <div className="flex gap-2 justify-center mt-4">
+        <button className="btn-secondary" onClick={() => navigate('/')}>← Lobby</button>
+        <button className="btn-primary" onClick={() => navigate('/stats')}>🏆 Leaderboard</button>
+      </div>
     </div>
   )
 }
