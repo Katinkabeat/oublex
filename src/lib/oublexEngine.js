@@ -1,6 +1,9 @@
 // Oublex dungeon engine — pure game logic, no DOM.
-// Ported from the approved mockup. Seeded per day so the dungeon + tile bag are
-// identical for everyone on a given date; the dictionary is injected as a Set.
+// v2: branching map. A daily run is 5 depths (entry -> branch -> mid -> branch
+// -> boss). Depths 1 and 3 offer a safe/risky door choice; the rest are single
+// forced rooms. Everything is seeded per day (map layout, monster dice, drops)
+// so the dungeon is identical for everyone on a given date but feels alive —
+// see buildMap() / resolveNode() below.
 
 import { rngFromSeed } from './rng.js'
 import { isValidWord as dictHas } from './dictionary.js'
@@ -30,16 +33,18 @@ export const CLASSES = [
 ]
 const CLASS_IDS = new Set(CLASSES.map(c => c.id))
 
-// Clear ranks — a *win* is graded by total damage dealt (the same axis as the
-// leaderboard), so there's always a higher clear to chase instead of just
-// "survived / didn't." Thresholds come from the winning-score distribution under
-// the shipped curve (sim: wins span ~140–196, most land 150–165; skilled median
-// ~159). Re-check with scripts/balance-sim.mjs if the curve changes. Ordered
-// high→low; clearRank() returns the first tier the score reaches.
+// Clear ranks — a *win* is graded by score (damage that LANDS; overkill no
+// longer counts, see cast()), so there's always a higher clear to chase instead
+// of just "survived / didn't." Re-derived 2026-08-12 for the v2 branching/dice
+// rework (HERO_MAX 140, safe-door optimal-play score distribution from
+// scripts/balance-sim.mjs: min 136 · median 156 · p75 182 · p90 213 · max 259).
+// Deathless sits near p90 (top ~10%, a real stretch); Marrow-reaper near p75;
+// Gutcutter at the median, so a typical skilled clear lands there. Ordered
+// high->low; clearRank() returns the first tier the score reaches.
 export const CLEAR_RANKS = [
-  { min: 170, name: 'Deathless',     note: 'Nothing down here got a real bite in.' },
-  { min: 160, name: 'Marrow-reaper', note: 'You left the rooms wet.' },
-  { min: 152, name: 'Gutcutter',     note: 'Messy, but they went down.' },
+  { min: 210, name: 'Deathless',     note: 'Nothing down here got a real bite in.' },
+  { min: 182, name: 'Marrow-reaper', note: 'You left the rooms wet.' },
+  { min: 156, name: 'Gutcutter',     note: 'Messy, but they went down.' },
   { min: 0,   name: 'Gravecrawler',  note: 'You crawled back out. Barely.' },
 ]
 export function clearRank(score) {
@@ -52,11 +57,6 @@ export function nextRank(score) {
   return higher.length ? higher[0] : null
 }
 
-// The 5-room dungeon is resolved per run from the tiered bestiary (see
-// buildRooms): one monster per HP tier per day, one encounter + kill variant
-// each, seeded so the dungeon is identical for everyone on a given date but
-// rotates day to day. HP and counter-damage stay fixed per tier.
-
 export const INTRO = [
   "The dark down here is older than the floor it sits on.",
   "You brought letters to a knife fight. Go.",
@@ -68,10 +68,75 @@ export const RUNE_FLAVOR = [
 ]
 export const TRANSITION = "The floor slopes down. The dark gets friendlier with the dead."
 
+// ---- doors ----
+// Depths 1 and 3 (0-indexed) are branch points: a safe door (sturdier fight,
+// mostly sustain drops) and a risky door (harder fight, better drops). Both
+// doors show the monster, its die, and its HP before you pick — the drop stays
+// a mystery until the kill (Rae's call: the unknown is the DnD excitement).
+export const DOOR_INFO = {
+  safe:  { icon: '🛡', label: 'Safe door',  blurb: 'Sturdier odds. Mostly keeps you standing.' },
+  risky: { icon: '☠', label: 'Risky door', blurb: 'Rougher fight. Maybe a better find down that way.' },
+}
+const BRANCH_DEPTHS = new Set([1, 3])
+const RISKY_STAT_BUMP = 1.15 // risky-door monster's HP scales up a bit over the tier baseline
+
+// ---- dice ----
+// "The dungeon rolls its dice once per day": every counter-attack draws from a
+// pre-rolled, per-room seeded stream instead of Math.random, so two players who
+// take the same number of hits in the same room take the exact same sequence of
+// damage (refresh-scum guard; NO per-player RNG). Die size climbs with depth,
+// and the risky door always rolls the bigger die of the pair.
+const DICE_ROLLS_PER_ROOM = 40
+function dieSize(depth, doorType) {
+  if (depth === 0) return 6                       // entry
+  if (depth === 1) return doorType === 'risky' ? 10 : 8   // first junction
+  if (depth === 2) return 10                       // mid
+  if (depth === 3) return doorType === 'risky' ? 12 : 10  // second junction
+  return 20                                          // boss
+}
+const DIE_SHRINK = { 20: 12, 12: 10, 10: 8, 8: 6, 6: 6 }
+
+// ---- satchel drops ----
+// Two held-item slots (bumped from one, 2026-08-12 — see c329/c331), filled
+// automatically on a kill. Both slots full when a drop lands triggers a swap
+// decision (see needsSatchelDecision) — pick which slot to replace, or leave
+// the new find behind. Named apart from the tile "rune" (the single-tile hurl
+// below) so the two mechanics never read as the same thing in a log line.
+export const SATCHEL_SLOTS = 2
+export const ITEMS = {
+  scrap:      { icon: '🧪', name: 'Potion',      desc: 'scavenged and unlabeled, drink it to heal 28 HP' },
+  bloodmark:  { icon: '☡',  name: 'Bloodmark',   desc: 'burn it to double the damage that lands, for one room' },
+  hexbind:    { icon: '⤓',  name: 'Hexbind',     desc: "chip a monster's die down a size, starting your next hit" },
+  poison:     { icon: '☣',  name: 'Poison',      desc: 'coats your next cast, then ticks 3 more hits after, whatever you spell' },
+  secondwind: { icon: '🌬', name: 'Second Wind', desc: 'arms a save, the next hit that would kill you leaves you at 1 HP instead' },
+}
+// Safe doors mostly drop sustain; risky doors mostly drop power. Non-branch
+// rooms (entry / mid / boss) use a middling table. Tune freely — see
+// scripts/balance-sim.mjs and scripts/difficulty-sim.mjs.
+const DROP_TABLES = {
+  safe:    [['scrap', 0.35], ['hexbind', 0.25], ['secondwind', 0.15], ['bloodmark', 0.15], ['poison', 0.10]],
+  risky:   [['bloodmark', 0.25], ['poison', 0.30], ['secondwind', 0.15], ['hexbind', 0.20], ['scrap', 0.10]],
+  neutral: [['scrap', 0.25], ['bloodmark', 0.20], ['hexbind', 0.20], ['poison', 0.20], ['secondwind', 0.15]],
+}
+function rollDrop(rng, doorType) {
+  const table = DROP_TABLES[doorType || 'neutral']
+  let roll = rng()
+  for (const [kind, weight] of table) {
+    if (roll < weight) return kind
+    roll -= weight
+  }
+  return table[table.length - 1][0]
+}
+
 const V_POOL = "AAAAEEEEIIIOOUU".split('')
 const C_POOL = "NNNRRRTTTLLLSSSDDGGBBCCMMPPFHVWYK".split('')
 const isVowel = (l) => l === 'A' || l === 'E' || l === 'I' || l === 'O' || l === 'U'
-const HERO_MAX = 100
+// Bumped 100 -> 140 for the v2 dice rework (2026-08-12): seeded per-room dice
+// (see dieSize()) swing harder than the old fixed counters did, and casual-play
+// win rate collapsed to ~45% at HERO_MAX=100 in scripts/difficulty-sim.mjs.
+// 140 restores it to ~87% (per-class 70-95%) while optimal stays ~100%, in
+// line with the shipped design stance: challenge = score, not survival.
+const HERO_MAX = 140
 
 export class OublexRun {
   // gameId = Atlantic YMD (the daily seed); dict = Set of UPPERCASE valid words.
@@ -85,31 +150,65 @@ export class OublexRun {
 
   reset() {
     this.rng = rngFromSeed(`oublex:daily:${this.gameId}`)
-    this.phase = 'class'          // class | intro | fight | victory | loot | win | dead
+    this.phase = 'class'          // class | intro | fight | victory | door | win | dead
     this.heroClass = 'bard'       // overwritten by chooseClass before the run starts
-    this.room = 0
+    this.map = this.buildMap()    // 5 depths, seeded; see buildMap()
+    this.depth = 0
+    this.currentRoom = this.map[0].room  // depth 0 (entry) is always a single room
+    this.roomTurn = 0              // counter-attacks taken in the current room (drives dmgRolls index)
     this.heroHP = HERO_MAX
     this.heroMax = HERO_MAX
-    this.rooms = this.buildRooms() // 5 resolved rooms, seeded from the bestiary
-    this.monsterHP = this.rooms[0].hp
+    this.monsterHP = this.currentRoom.hp
     this.nextId = 0
     this.rack = this.freshRack()
     this.word = []                // array of tile ids
     this.log = ''
     this.lastRuneFlavor = ''
-    this.totalDamage = 0          // leaderboard metric = cumulative damage dealt
+    this.totalDamage = 0          // leaderboard metric = damage that LANDS (see cast())
+    this.satchel = []             // up to SATCHEL_SLOTS held { kind } items
+    this.runeActive = false       // this room's bloodmark burn (x2 landed score)
+    this.poisonTicks = 0          // remaining poison hits (one per cast), this room only
+    this.poisonDmgPerTick = 0
+    this.secondWindActive = false // this room's armed death-save
+    this.pendingDrop = null       // { kind, satchelFull, resolved? } shown on the victory screen
   }
 
-  // Resolve the 5 rooms for this run: one monster per HP tier, one encounter +
-  // kill variant each. Uses its own seed stream so the tile bag is unaffected,
-  // and is deterministic per gameId so the dungeon matches for everyone that day.
-  buildRooms() {
-    const r = rngFromSeed(`oublex:bestiary:${this.gameId}`)
+  // Resolve the day's 5-depth map. Depths 1 and 3 are branch points (both doors
+  // resolved up front so the choice can show real stats); the rest are single
+  // forced rooms. Each node gets its own monster, dice stream, and drop —
+  // deterministic per gameId so the dungeon matches for everyone that day.
+  buildMap() {
+    const map = []
+    for (let depth = 0; depth < 5; depth++) {
+      const tier = TIERS[depth]
+      if (BRANCH_DEPTHS.has(depth)) {
+        map.push({
+          branch: true,
+          safe: this.resolveNode(depth, tier, 'safe'),
+          risky: this.resolveNode(depth, tier, 'risky'),
+        })
+      } else {
+        map.push({ branch: false, room: this.resolveNode(depth, tier, null) })
+      }
+    }
+    return map
+  }
+
+  resolveNode(depth, tier, doorType) {
+    const r = rngFromSeed(`oublex:bestiary:${this.gameId}:d${depth}:${doorType || 'x'}`)
     const pick = (arr) => arr[Math.floor(r() * arr.length)]
-    return TIERS.map((tier) => {
-      const m = pick(tier.monsters)
-      return { name: m.name, hp: tier.hp, counter: tier.counter, enc: pick(m.enc), kill: pick(m.kill) }
-    })
+    const m = pick(tier.monsters)
+    const enc = pick(m.enc)
+    const kill = pick(m.kill)
+    const hp = doorType === 'risky' ? Math.round(tier.hp * RISKY_STAT_BUMP) : tier.hp
+    const die = dieSize(depth, doorType)
+    const diceStream = rngFromSeed(`oublex:dice:${this.gameId}:d${depth}:${doorType || 'x'}`)
+    const dmgRolls = Array.from({ length: DICE_ROLLS_PER_ROOM }, () => Math.floor(diceStream() * die) + 1)
+    const dropStream = rngFromSeed(`oublex:drop:${this.gameId}:d${depth}:${doorType || 'x'}`)
+    const drop = rollDrop(dropStream, doorType)
+    // dieOriginal is fixed at resolve time so a hexbind's shrink (which mutates
+    // `die`) stays visible to the UI as "shrunk from d{dieOriginal}".
+    return { depth, doorType: doorType || null, name: m.name, hp, die, dieOriginal: die, dmgRolls, enc, kill, drop }
   }
 
   // ---- tiles / rack (seeded draws, >=2 vowels & >=2 consonants) ----
@@ -228,13 +327,23 @@ export class OublexRun {
     this.phase = 'intro'
   }
 
-  enterDungeon() { this.phase = 'fight'; this.log = this.rooms[0].enc }
+  enterDungeon() { this.phase = 'fight'; this.log = this.currentRoom.enc }
 
   cast() {
     const ev = this.evalSelection()
     if (!ev.valid || ev.len < 1) return
+    const before = this.monsterHP
     this.monsterHP = Math.max(0, this.monsterHP - ev.dmg)
-    this.totalDamage += ev.dmg     // cumulative word damage = the skill score
+    // Score = damage that LANDS (overkill past the monster's remaining HP is
+    // excluded), doubled while a bloodmark burns. This doubling is deliberately
+    // score-only, not a combat buff: a winning run's landed damage always sums
+    // to exactly the HP of the monsters on its door path (every non-overkill
+    // point on a kill sums to that monster's max HP, by definition) — so
+    // bloodmark timing is the ONLY thing that can push a winning score past
+    // that fixed floor. That's the real "chase a higher clear" lever.
+    const landed = Math.min(ev.dmg, before)
+    const scored = landed * (this.runeActive ? 2 : 1)
+    this.totalDamage += scored
     // Cleric lifedrain: heal a quarter of the damage just dealt (applies before
     // the monster's counter, so a surviving turn nets heal minus counter).
     let healMsg = ''
@@ -248,52 +357,174 @@ export class OublexRun {
     this.wordTiles().forEach(t => { t.spent = true })
     this.refillSpent()
     this.word = []
-    const room = this.rooms[this.room]
+    const room = this.currentRoom
+    const tags = [ev.bonus, this.runeActive ? 'bloodmark x2' : ''].filter(Boolean).join(', ')
+    // Show the swing plainly; only call out the score separately when a
+    // bloodmark (or overkill trim) makes it diverge from the hit itself —
+    // otherwise the extra clause is just noise.
+    const scoreNote = scored !== ev.dmg ? ` Scores ${scored}.` : ''
     let msg
     if (ev.kind === 'rune') {
       this.lastRuneFlavor = RUNE_FLAVOR[this.runeIdx % RUNE_FLAVOR.length]
       this.runeIdx++
-      msg = `${this.lastRuneFlavor} (${ev.dmg} dmg)${healMsg}`
+      msg = `${this.lastRuneFlavor} (${ev.dmg} dmg)${scoreNote}${healMsg}`
     } else {
-      msg = `You strike for ${ev.dmg}${ev.bonus ? ` (${ev.bonus})` : ''}.${healMsg}`
+      msg = `You strike for ${ev.dmg}${tags ? ` (${tags})` : ''}.${scoreNote}${healMsg}`
     }
+    // Poison: a real (landed-only) extra hit on every cast while ticks remain,
+    // independent of what you spell and NOT amplified by a burning bloodmark —
+    // a separate damage lane on purpose, not a stacking multiplier (see popSatchel).
+    let poisonMsg = ''
+    if (this.poisonTicks > 0 && this.monsterHP > 0) {
+      const beforePoison = this.monsterHP
+      this.monsterHP = Math.max(0, this.monsterHP - this.poisonDmgPerTick)
+      const poisonLanded = Math.min(this.poisonDmgPerTick, beforePoison)
+      this.totalDamage += poisonLanded
+      poisonMsg = ` Poison ticks for ${poisonLanded}.`
+    }
+    if (this.poisonTicks > 0) this.poisonTicks--
     if (this.monsterHP <= 0) {
-      this.phase = (this.room === this.rooms.length - 1) ? 'win' : 'victory'
-      this.log = msg
+      this.runeActive = false      // the bloodmark burn was scoped to this room; it ends on the kill
+      this.poisonTicks = 0         // poison doesn't carry into the next room either
+      this.secondWindActive = false // nor does an unused, still-armed second wind
+      this.resolveDrop(room)
+      this.phase = (this.depth === this.map.length - 1) ? 'win' : 'victory'
+      this.log = `${msg}${poisonMsg}`
     } else {
-      this.heroHP = Math.max(0, this.heroHP - room.counter)
-      this.log = `${msg} The ${room.name} hits back for ${room.counter}.`
+      const dmg = room.dmgRolls[this.roomTurn % room.dmgRolls.length]
+      this.roomTurn++
+      let windMsg = ''
+      if (this.heroHP - dmg <= 0 && this.secondWindActive) {
+        this.heroHP = 1
+        this.secondWindActive = false
+        windMsg = ' Second Wind catches you at 1 HP.'
+      } else {
+        this.heroHP = Math.max(0, this.heroHP - dmg)
+      }
+      this.log = `${msg}${poisonMsg} The ${room.name} hits back for ${dmg}.${windMsg}`
       if (this.heroHP <= 0) this.phase = 'dead'
     }
   }
 
-  pressOnward() { this.phase = 'loot' }
+  // A kill's pre-rolled drop either slots into the satchel automatically (if
+  // under SATCHEL_SLOTS), or (both slots full) surfaces a swap decision on the
+  // victory screen — which slot to replace, or leave the find behind.
+  resolveDrop(room) {
+    if (!room.drop) { this.pendingDrop = null; return }
+    if (this.satchel.length < SATCHEL_SLOTS) {
+      this.satchel.push({ kind: room.drop })
+      this.pendingDrop = { kind: room.drop, satchelFull: false }
+    } else {
+      this.pendingDrop = { kind: room.drop, satchelFull: true, resolved: false }
+    }
+  }
 
-  takeLoot(kind) {
-    if (kind === 'hp') this.heroHP = Math.min(this.heroMax, this.heroHP + 20)
-    if (kind === 'wild') this.rack.push({ id: this.nextId++, letter: '?', isWild: true, assigned: null, spent: false })
-    if (kind === 'redraw') this.rack = this.freshRack()
-    this.room++
-    this.monsterHP = this.rooms[this.room].hp
+  get needsSatchelDecision() { return !!(this.pendingDrop?.satchelFull && !this.pendingDrop.resolved) }
+
+  // slotIndex: which held item the new drop replaces.
+  swapSatchel(slotIndex) {
+    if (!this.needsSatchelDecision) return
+    if (slotIndex < 0 || slotIndex >= this.satchel.length) return
+    this.satchel[slotIndex] = { kind: this.pendingDrop.kind }
+    this.pendingDrop.resolved = true
+  }
+  keepSatchel() {
+    if (!this.needsSatchelDecision) return
+    this.pendingDrop.resolved = true
+  }
+
+  // Drop a held item without using it — proactive slot management, usable any
+  // time mid-fight (not just when a new find forces the issue).
+  discardSatchel(slotIndex) {
+    if (this.phase !== 'fight') return
+    if (slotIndex < 0 || slotIndex >= this.satchel.length) return
+    this.satchel.splice(slotIndex, 1)
+  }
+
+  // Use a held satchel item mid-fight. Potion heals now; a bloodmark burns for
+  // the rest of the current room; a hexbind shrinks the room's die a size,
+  // starting from your next hit (turns already resolved keep their rolls);
+  // poison arms 3 ticks (one per subsequent cast, whatever you spell); second
+  // wind arms a one-time death-save for the rest of the room.
+  popSatchel(slotIndex) {
+    if (this.phase !== 'fight') return
+    const item = this.satchel[slotIndex]
+    if (!item) return
+    const kind = item.kind
+    if (kind === 'scrap') {
+      this.heroHP = Math.min(this.heroMax, this.heroHP + 28)  // scaled with HERO_MAX (100 -> 140)
+    } else if (kind === 'bloodmark') {
+      this.runeActive = true
+    } else if (kind === 'hexbind') {
+      const room = this.currentRoom
+      room.die = DIE_SHRINK[room.die] ?? 6
+      const reroll = rngFromSeed(`oublex:dice:${this.gameId}:shrink:d${room.depth}:${room.doorType || 'x'}:t${this.roomTurn}`)
+      for (let i = this.roomTurn; i < room.dmgRolls.length; i++) {
+        room.dmgRolls[i] = Math.floor(reroll() * room.die) + 1
+      }
+    } else if (kind === 'poison') {
+      this.poisonTicks = 3
+      this.poisonDmgPerTick = 4
+    } else if (kind === 'secondwind') {
+      this.secondWindActive = true
+    }
+    this.satchel.splice(slotIndex, 1)
+  }
+
+  // Advance past a cleared room: into the next single room, or into the door
+  // choice if the next depth is a branch point. Blocked until a full-satchel
+  // swap decision (if any) has been made.
+  pressOnward() {
+    if (this.needsSatchelDecision) return
+    this.pendingDrop = null
+    const nextDepth = this.depth + 1
+    const nextNode = this.map[nextDepth]
+    if (nextNode.branch) {
+      this.phase = 'door'
+    } else {
+      this.enterRoom(nextDepth, nextNode.room)
+    }
+  }
+
+  chooseDoor(doorType) {
+    if (this.phase !== 'door') return
+    const nextDepth = this.depth + 1
+    const node = this.map[nextDepth][doorType]
+    if (!node) return
+    this.enterRoom(nextDepth, node)
+  }
+
+  enterRoom(depth, room) {
+    this.depth = depth
+    this.currentRoom = room
+    this.roomTurn = 0
+    this.monsterHP = room.hp
     this.word = []
     this.phase = 'fight'
-    this.log = this.rooms[this.room].enc
+    this.log = room.enc
   }
 
   // ---- resume (persist an in-progress run so a reload continues it) ----
-  // A full snapshot of the mutable run state, including the RNG position and the
-  // resolved rooms (stored, not rebuilt, so a mid-run curve/bestiary deploy can't
-  // reshape a run already underway). JSON-safe → persisted to oublex_daily_runs.
+  // v3: satchel became a 2-slot array (was a single {kind}|null) and gained
+  // poison/second-wind state — a v2 snapshot's satchel shape doesn't match
+  // (this.satchel.length would throw on the old object|null), so it must be
+  // discarded like v1 before it, not loaded (the caller checks snapshot.v
+  // before calling loadSnapshot; see OublexGame.jsx). The map (and every
+  // node's dice/drop) is stored, not rebuilt, so a mid-run curve/bestiary/dice
+  // deploy can't reshape a run already underway, and a hexbind's shrunk die
+  // survives a reload. JSON-safe -> persisted to oublex_daily_runs.
   snapshot() {
     return {
-      v: 1,
+      v: 3,
       gameId: this.gameId,
       phase: this.phase,
       heroClass: this.heroClass,
-      room: this.room,
+      map: this.map,
+      depth: this.depth,
+      currentRoom: this.currentRoom,
+      roomTurn: this.roomTurn,
       heroHP: this.heroHP,
       heroMax: this.heroMax,
-      rooms: this.rooms,
       monsterHP: this.monsterHP,
       nextId: this.nextId,
       rack: this.rack,
@@ -302,19 +533,27 @@ export class OublexRun {
       lastRuneFlavor: this.lastRuneFlavor,
       totalDamage: this.totalDamage,
       runeIdx: this.runeIdx,
+      satchel: this.satchel,
+      runeActive: this.runeActive,
+      poisonTicks: this.poisonTicks,
+      poisonDmgPerTick: this.poisonDmgPerTick,
+      secondWindActive: this.secondWindActive,
+      pendingDrop: this.pendingDrop,
       rngState: this.rng.getState(),
     }
   }
 
-  // Restore a run from a snapshot() payload (after the constructor's reset()).
-  // Overwrites every mutable field and pins the RNG back to its saved position.
+  // Restore a v3 snapshot (after the constructor's reset()). Overwrites every
+  // mutable field and pins the RNG back to its saved position.
   loadSnapshot(s) {
     this.phase = s.phase
     this.heroClass = s.heroClass
-    this.room = s.room
+    this.map = s.map
+    this.depth = s.depth
+    this.currentRoom = s.currentRoom
+    this.roomTurn = s.roomTurn
     this.heroHP = s.heroHP
     this.heroMax = s.heroMax
-    this.rooms = s.rooms
     this.monsterHP = s.monsterHP
     this.nextId = s.nextId
     this.rack = s.rack
@@ -323,6 +562,12 @@ export class OublexRun {
     this.lastRuneFlavor = s.lastRuneFlavor
     this.totalDamage = s.totalDamage
     this.runeIdx = s.runeIdx
+    this.satchel = s.satchel
+    this.runeActive = s.runeActive
+    this.poisonTicks = s.poisonTicks
+    this.poisonDmgPerTick = s.poisonDmgPerTick
+    this.secondWindActive = s.secondWindActive
+    this.pendingDrop = s.pendingDrop
     this.rng.setState(s.rngState)
     return this
   }
@@ -330,8 +575,10 @@ export class OublexRun {
   // ---- derived ----
   get classInfo() { return CLASSES.find(c => c.id === this.heroClass) || CLASSES[0] }
   get isGameOver() { return this.phase === 'win' || this.phase === 'dead' }
-  get score() { return this.totalDamage }       // leaderboard metric = cumulative damage
-  get roomsCleared() { return this.phase === 'win' ? this.rooms.length : this.room }
+  get score() { return this.totalDamage }       // leaderboard metric = damage that lands
+  get roomsCleared() { return this.phase === 'win' ? this.map.length : this.depth }
+  // The next depth's door options, valid only while phase === 'door'.
+  get pendingDoors() { return this.phase === 'door' ? this.map[this.depth + 1] : null }
 }
 
 function hasDoubledLetter(ls) {

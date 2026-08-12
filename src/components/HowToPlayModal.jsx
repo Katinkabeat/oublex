@@ -38,23 +38,43 @@ export default function HowToPlayModal({ open, onClose }) {
         </p>
 
         <p>
-          <b>Loot between rooms.</b> Clear a room and you grab one of three things:
-          a wildcard tile, +20 HP, or a full redraw of your rack. The wildcard
-          plays as any letter you want, but it deals no damage of its own.
+          <b>The passage splits.</b> Twice on the way down you get a choice: a
+          safe door or a risky one. Both show you the monster, its die, and its
+          HP before you commit. Safe is the sturdier fight, and risky hits
+          harder but guards a better find. What that find actually is stays a
+          mystery until the kill.
+        </p>
+
+        <p>
+          <b>Loot on the kill.</b> Every monster you drop has a chance to leave
+          something behind, straight into your satchel. The satchel holds two:
+        </p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>Potion:</b> heals 28 HP the moment you drink it.</li>
+          <li><b>Bloodmark:</b> doubles the damage that lands for the rest of the room it's burned in.</li>
+          <li><b>Hexbind:</b> chips a monster's counter-die down a size, starting from your next hit.</li>
+          <li><b>Poison:</b> coats your next cast, then ticks 3 more hits after that, whatever you spell.</li>
+          <li><b>Second Wind:</b> arms a save. The next hit that would kill you leaves you at 1 HP instead.</li>
+        </ul>
+        <p>
+          Use an item whenever you want, or discard one you don't need to make
+          room. A find while both slots are full asks you to swap one out or
+          leave it behind.
         </p>
 
         <p>
           <b>Live or fall.</b> Clear all five rooms to make it out. Drop to 0 HP
-          and the run ends where you fell. Whatever damage you dealt still counts,
-          even if you fall.
+          and the run ends where you fell. Whatever damage you landed still
+          counts, even if you fall.
         </p>
 
         <p>
-          <b>The score.</b> The leaderboard ranks by the total damage you deal
-          across the run, so overkill is never wasted. Clear the dungeon and your
-          run earns a rank: Gravecrawler at the low end, then Gutcutter, then
-          Marrow-reaper, and Deathless at the top. Surviving is the floor. Hitting
-          harder is the game.
+          <b>The score.</b> The leaderboard ranks by the damage that actually
+          lands. Swinging past a monster's last HP doesn't pad the number, so
+          landing the finishing blow clean matters more than overkill. Clear the
+          dungeon and your run earns a rank: Gravecrawler at the low end, then
+          Gutcutter, then Marrow-reaper, and Deathless at the top. Surviving is
+          the floor. Hitting clean is the game.
         </p>
       </div>
     </SQModal>

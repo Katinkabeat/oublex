@@ -1,20 +1,22 @@
 // Oublex bestiary — the monster pools, one per HP tier.
 //
-// Each day's run seeds one monster per tier and one encounter + kill variant
-// per room (see OublexRun.buildRooms), so the dungeon is the same for everyone
-// on a given date but rotates day to day. HP and counter-damage are fixed per
-// tier (the sim-balanced curve 13/20/26/33/44 · 5/7/9/11/13; retuned 2026-07-02
-// to burn off the too-large HP cushion — see scripts/balance-sim.mjs); monsters are a
-// narrative skin over it. Voice = Oublex's straight-dark-gross profile (NOT
-// Raven's friendly house voice): visceral, sensory, second person, no jokes.
+// Each day's run seeds one monster per tier (per door, at a branch depth) and
+// one encounter + kill variant per room (see OublexRun.resolveNode), so the
+// dungeon is the same for everyone on a given date but rotates day to day. HP
+// is fixed per tier (a risky door scales it up ~15%, see RISKY_STAT_BUMP in
+// oublexEngine.js); counter-attack damage is no longer fixed here — it's
+// rolled from a per-room seeded die (see dieSize() in oublexEngine.js).
+// Monsters are a narrative skin over the numbers. Voice = Oublex's
+// straight-dark-gross profile (NOT Raven's friendly house voice): visceral,
+// sensory, second person, no jokes.
 //
 // Grossness and scale climb with the tier; tier 5 is boss-grade and its kills
 // end with "Run complete." (the engine's final-room signal).
 
 export const TIERS = [
-  // ---- Tier 1 · 13 HP · counter 5 — small and revolting ----
+  // ---- Tier 1 · 13 HP — small and revolting ----
   {
-    hp: 13, counter: 5,
+    hp: 13,
     monsters: [
       { name: 'Gnashling',
         enc: [
@@ -129,9 +131,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 2 · 20 HP · counter 7 — bigger, meaner ----
+  // ---- Tier 2 · 20 HP — bigger, meaner ----
   {
-    hp: 20, counter: 7,
+    hp: 20,
     monsters: [
       { name: 'Mire Crawler',
         enc: [
@@ -246,9 +248,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 3 · 26 HP · counter 9 — nasty, dangerous ----
+  // ---- Tier 3 · 26 HP — nasty, dangerous ----
   {
-    hp: 26, counter: 9,
+    hp: 26,
     monsters: [
       { name: 'Bone Choir',
         enc: [
@@ -363,9 +365,9 @@ export const TIERS = [
     ],
   },
 
-  // ---- Tier 4 · 33 HP · counter 11 — large, overwhelming ----
+  // ---- Tier 4 · 33 HP — large, overwhelming ----
   {
-    hp: 33, counter: 11,
+    hp: 33,
     monsters: [
       { name: 'Rust Ogre',
         enc: [
@@ -482,7 +484,7 @@ export const TIERS = [
 
   // ---- Tier 5 · 44 HP · counter 13 · BOSS — climactic (kills end the run) ----
   {
-    hp: 44, counter: 13,
+    hp: 44,
     monsters: [
       { name: 'The Lexivore',
         enc: [

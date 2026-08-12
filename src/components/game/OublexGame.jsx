@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SQModal } from '../../../../rae-side-quest/packages/sq-ui'
 import { loadDictionary } from '../../lib/dictionary.js'
-import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRank } from '../../lib/oublexEngine.js'
+import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRank, ITEMS, DOOR_INFO } from '../../lib/oublexEngine.js'
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
 // engine, and calls onGameOver(score, heroClass) once when the run ends (score =
@@ -25,7 +25,10 @@ export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPers
 
   if (dict && !runRef.current) {
     const r = new OublexRun(gameId, dict)
-    if (initialSnapshot) r.loadSnapshot(initialSnapshot)
+    // Older snapshots (v1's linear rooms array, v2's single-slot satchel) are
+    // structurally incompatible with the current engine — discard rather than
+    // load a corrupt resume.
+    if (initialSnapshot && initialSnapshot.v === 3) r.loadSnapshot(initialSnapshot)
     runRef.current = r
   }
   const run = runRef.current
@@ -49,13 +52,20 @@ export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPers
 
   return (
     <div className="max-w-xl mx-auto">
-      <RunBar room={run.room} phase={run.phase} count={run.rooms.length} />
+      <RunBar depth={run.depth} phase={run.phase} map={run.map} />
 
       {run.phase === 'class' && <ClassPicker onPick={(id) => apply(() => run.chooseClass(id))} />}
       {run.phase === 'intro' && <Intro onEnter={() => apply(() => run.enterDungeon())} />}
       {run.phase === 'fight' && <Fight run={run} apply={apply} />}
-      {run.phase === 'victory' && <Victory run={run} onward={() => apply(() => run.pressOnward())} />}
-      {run.phase === 'loot' && <Loot run={run} take={(k) => apply(() => run.takeLoot(k))} />}
+      {run.phase === 'victory' && (
+        <Victory
+          run={run}
+          onward={() => apply(() => run.pressOnward())}
+          onSwap={(i) => apply(() => run.swapSatchel(i))}
+          onKeep={() => apply(() => run.keepSatchel())}
+        />
+      )}
+      {run.phase === 'door' && <DoorChoice run={run} onChoose={(d) => apply(() => run.chooseDoor(d))} />}
       {(run.phase === 'win' || run.phase === 'dead') && (
         <EndScreen run={run} saveState={saveState} onRetrySave={onRetrySave} dayClosed={dayClosed} />
       )}
@@ -63,12 +73,14 @@ export default function OublexGame({ gameId, onGameOver, initialSnapshot, onPers
   )
 }
 
-function RunBar({ room, phase, count }) {
+// One pip per depth. Branch depths (a safe/risky choice happened there) get a
+// small diamond marker so the bar reads as a map, not just a linear progress bar.
+function RunBar({ depth, phase, map }) {
   return (
     <div className="flex gap-2 mb-4">
-      {Array.from({ length: count }).map((_, i) => {
-        const done = i < room || phase === 'win'
-        const current = i === room && phase !== 'win'
+      {map.map((node, i) => {
+        const done = i < depth || phase === 'win'
+        const current = i === depth && phase !== 'win'
         const cls = done
           ? 'bg-green-600 border-green-600 text-white'
           : current
@@ -76,7 +88,7 @@ function RunBar({ room, phase, count }) {
             : 'border-wordy-200 text-wordy-400'
         return (
           <div key={i} className={`flex-1 text-center py-1.5 rounded-md border text-xs font-extrabold ${cls}`}>
-            {done ? '✓' : i + 1}
+            {done ? '✓' : (node.branch ? '◆' : i + 1)}
           </div>
         )
       })}
@@ -194,8 +206,33 @@ function WildPicker({ onPick, onCancel }) {
   )
 }
 
+// The held satchel items (0-2 slots) — shown mid-fight, each with a Use button
+// that applies its effect immediately, and a discard so a slot can be freed up
+// proactively rather than only when a new find forces a swap decision.
+function Satchel({ items, onUse, onDiscard }) {
+  if (!items.length) return null
+  return (
+    <div className="card mb-3 space-y-2">
+      {items.map((item, i) => {
+        const info = ITEMS[item.kind]
+        return (
+          <div key={i} className="flex items-center gap-3">
+            <span className="text-2xl">{info.icon}</span>
+            <div className="flex-1">
+              <div className="font-extrabold text-sm">{info.name}</div>
+              <div className="text-[11px] opacity-70">{info.desc}</div>
+            </div>
+            <button type="button" className="btn-secondary" onClick={() => onUse(i)}>Use</button>
+            <button type="button" className="btn-secondary" onClick={() => onDiscard(i)} aria-label={`Discard ${info.name}`}>✕</button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function Fight({ run, apply }) {
-  const room = run.rooms[run.room]
+  const room = run.currentRoom
   const ev = run.evalSelection()
   const [wildId, setWildId] = useState(null)
 
@@ -210,10 +247,15 @@ function Fight({ run, apply }) {
     setWildId(null)
     apply(() => { run.assignWild(id, letter); run.toggleTile(id) })
   }
+  // The swing itself is unaffected by a burning bloodmark (see cast() in the
+  // engine — the x2 is score-only), so preview the real hit plus a visible
+  // score callout when it diverges.
+  const scorePreview = run.runeActive ? ev.dmg * 2 : ev.dmg
+  const bloodmarkTag = run.runeActive ? ` · ☡ scores ${scorePreview}` : ''
   let meta = null
-  if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg</span>
+  if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg{bloodmarkTag}</span>
   else if (ev.kind === 'word' && ev.valid)
-    meta = <span className="text-wordy-600">{ev.mult > 1 ? `${ev.base} ×${ev.mult} = ${ev.dmg} dmg` : `${ev.dmg} dmg`}</span>
+    meta = <span className="text-wordy-600">{ev.mult > 1 ? `${ev.base} ×${ev.mult} = ${ev.dmg} dmg` : `${ev.dmg} dmg`}{bloodmarkTag}</span>
   else if (ev.kind === 'word' && !ev.valid) meta = <span className="text-rose-500">the spellbook has never heard of it</span>
 
   const canCast = ev.kind === 'rune' || (ev.kind === 'word' && ev.valid)
@@ -226,8 +268,18 @@ function Fight({ run, apply }) {
         <HPBar label={run.classInfo.hpLabel} value={run.heroHP} max={run.heroMax} tone="hero" />
       </div>
 
+      <Satchel
+        items={run.satchel}
+        onUse={(i) => apply(() => run.popSatchel(i))}
+        onDiscard={(i) => apply(() => run.discardSatchel(i))}
+      />
+
       <div className="card mb-3">
-        <p className="font-display text-2xl text-rose-500 mb-3">{room.name}</p>
+        <p className="font-display text-2xl text-rose-500 mb-1">{room.name}</p>
+        <p className="text-xs opacity-70 mb-2">
+          counter: d{room.die}
+          {room.die < room.dieOriginal ? ` (hexbound down from d${room.dieOriginal})` : ''}
+        </p>
         <HPBar label="Monster" value={run.monsterHP} max={room.hp} tone="monster" />
         <div className="mt-3 pt-3 border-t border-wordy-200 text-[15px] leading-relaxed min-h-[66px]">
           {run.log || room.enc}
@@ -256,39 +308,69 @@ function Fight({ run, apply }) {
   )
 }
 
-function Victory({ run, onward }) {
-  const room = run.rooms[run.room]
+// Loot is no longer a separate room/screen — monsters drop it on the kill, and
+// it's shown right here. An empty satchel gets it automatically; a full one
+// forces a swap decision before you can move on (see needsSatchelDecision).
+function Victory({ run, onward, onSwap, onKeep }) {
+  const room = run.currentRoom
+  const nextNode = run.map[run.depth + 1]
+  const onwardLabel = nextNode?.branch ? 'Choose a door ▸' : 'Go Deeper ▸'
+  const drop = run.pendingDrop
   return (
     <div className="card text-center">
       <div className="font-display text-2xl text-green-600 mb-2">{room.name} down.</div>
       <p className="leading-relaxed mb-1">{room.kill}</p>
-      <p className="leading-relaxed opacity-60 mb-1">{TRANSITION}</p>
-      <button className="btn-primary mt-2" onClick={onward}>Go Deeper ▸</button>
+      {drop && !drop.satchelFull && (
+        <p className="text-sm font-bold text-wordy-600 mt-2">
+          {ITEMS[drop.kind].icon} Found: {ITEMS[drop.kind].name}. Tucked into your satchel.
+        </p>
+      )}
+      {run.needsSatchelDecision && (
+        <div className="mt-3 p-3 rounded-xl border-2 border-wordy-200 bg-wordy-50">
+          <p className="text-sm font-bold mb-2">
+            {ITEMS[drop.kind].icon} Found: {ITEMS[drop.kind].name}. Both satchel slots are full.
+          </p>
+          <div className="flex flex-col gap-2 items-center">
+            {run.satchel.map((held, i) => (
+              <button key={i} className="btn-secondary" onClick={() => onSwap(i)}>
+                Swap out {ITEMS[held.kind].name} for {ITEMS[drop.kind].name}
+              </button>
+            ))}
+            <button className="btn-primary" onClick={onKeep}>Leave {ITEMS[drop.kind].name} behind</button>
+          </div>
+        </div>
+      )}
+      <p className="leading-relaxed opacity-60 mt-2 mb-1">{TRANSITION}</p>
+      <button className="btn-primary mt-2" disabled={run.needsSatchelDecision} onClick={onward}>{onwardLabel}</button>
     </div>
   )
 }
 
-function Loot({ run, take }) {
-  const options = [
-    { k: 'wild', icon: '◆', name: 'Wildcard tile', desc: 'a ★ you play as any letter, once' },
-    { k: 'hp', icon: '✚', name: '+20 HP', desc: 'patch your wounds' },
-    { k: 'redraw', icon: '↻', name: 'Redraw rack', desc: 'swap all 7 for fresh tiles' },
-  ]
+// A branch depth's two doors. Both are already resolved (see buildMap) so the
+// monster, its die, and its HP are known up front — the drop stays a mystery.
+function DoorChoice({ run, onChoose }) {
+  const doors = run.pendingDoors
   return (
     <div className="card">
-      <p className="font-extrabold text-green-600 text-center mb-3">You search the room. Choose your spoils:</p>
-      <HPBar label={run.classInfo.hpLabel} value={run.heroHP} max={run.heroMax} tone="hero" />
-      <p className="text-xs font-bold opacity-70 mt-3 mb-1">Your current rack</p>
-      <Rack tiles={run.rack} readOnly />
-      <div className="flex gap-2.5 mt-4">
-        {options.map((o) => (
-          <button key={o.k} onClick={() => take(o.k)}
-            className="flex-1 text-center p-3 rounded-xl border-2 border-wordy-200 bg-wordy-50 hover:border-wordy-500 transition-colors">
-            <div className="text-2xl">{o.icon}</div>
-            <div className="text-sm font-extrabold mt-1">{o.name}</div>
-            <div className="text-[11px] opacity-70 mt-0.5">{o.desc}</div>
-          </button>
-        ))}
+      <p className="font-display text-2xl text-center mb-1">The passage splits.</p>
+      <p className="text-sm text-center opacity-70 mb-4">Pick a door.</p>
+      <div className="grid gap-2.5">
+        {['safe', 'risky'].map((k) => {
+          const info = DOOR_INFO[k]
+          const node = doors[k]
+          return (
+            <button key={k} type="button" onClick={() => onChoose(k)}
+              className="text-left p-3 rounded-xl border-2 border-wordy-200 bg-wordy-50 hover:border-wordy-500 transition-colors">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">{info.icon}</span>
+                <span className="font-display text-lg">{info.label}</span>
+                {k === 'risky' && <span className="text-[11px] font-bold text-amber-600 ml-auto">?? better</span>}
+              </div>
+              <div className="text-[13px] opacity-70 mt-0.5">{info.blurb}</div>
+              <div className="text-[13px] font-bold mt-1.5">{node.name} · d{node.die} · {node.hp} HP</div>
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -302,7 +384,7 @@ function EndScreen({ run, saveState, onRetrySave, dayClosed }) {
   return (
     <div className="card text-center">
       <div className="font-display text-2xl text-wordy-700 my-2">
-        {won ? 'Dungeon cleared.' : `You fell in Room ${run.room + 1}.`}
+        {won ? 'Dungeon cleared.' : `You fell in Room ${run.depth + 1}.`}
       </div>
       {won && (
         <div className="my-3">
@@ -356,7 +438,7 @@ function SaveStatus({ saveState, onRetrySave }) {
         <p className="text-sm text-rose-500 font-bold">Couldn't save your run.</p>
         <button className="btn-primary mt-2" onClick={onRetrySave}>Retry saving</button>
         <p className="text-[11px] opacity-60 mt-2">
-          Your run is held safely and will resume if you leave — nothing is lost until it saves.
+          Your run is held safely and will resume if you leave. Nothing is lost until it saves.
         </p>
       </div>
     )
