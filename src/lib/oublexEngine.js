@@ -249,11 +249,9 @@ export class OublexRun {
   }
 
   refillSpent() {
-    // A spent wildcard is consumed, not replaced — the rack shrinks back to 7.
-    this.rack = this.rack.filter(t => !(t.spent && t.isWild))
     const kept = this.rack.filter(t => !t.spent)
     let v = kept.filter(t => isVowel(t.letter)).length
-    let c = kept.filter(t => !isVowel(t.letter) && t.letter !== '?').length
+    let c = kept.filter(t => !isVowel(t.letter)).length
     this.rack = this.rack.map(t => {
       if (!t.spent) return t
       let letter
@@ -267,25 +265,17 @@ export class OublexRun {
   // ---- selection / damage ----
   wordTiles() { return this.word.map(id => this.rack.find(t => t.id === id)) }
 
-  // The letter a tile contributes to a word: a wildcard plays as its
-  // player-chosen letter; everything else is its own face.
-  effLetter(t) { return t.isWild ? (t.assigned || '?') : t.letter }
-  // Damage value of a tile — a wildcard is always worth 0.
-  tileValue(t) { return t.isWild ? 0 : LETTER_VALUE[t.letter] }
-
   _validWord(letters) {
-    const w = letters.join('')
-    if (w.includes('?')) return false   // an unassigned wildcard can't form a word
-    return dictHas(w, this.dict)
+    return dictHas(letters.join(''), this.dict)
   }
 
   evalSelection() {
     const tiles = this.wordTiles()
-    const letters = tiles.map(t => this.effLetter(t))
+    const letters = tiles.map(t => t.letter)
     const len = letters.length
     if (len === 0) return { len: 0, kind: 'none', valid: false, dmg: 0 }
-    if (len === 1) return { len: 1, kind: 'rune', valid: true, dmg: this.tileValue(tiles[0]), letters }
-    const base = tiles.reduce((s, t) => s + this.tileValue(t), 0)
+    if (len === 1) return { len: 1, kind: 'rune', valid: true, dmg: LETTER_VALUE[tiles[0].letter], letters }
+    const base = tiles.reduce((s, t) => s + LETTER_VALUE[t.letter], 0)
     const valid = this._validWord(letters)
     const mod = this.classDamage(letters, len)   // the chosen class bends the damage
     const dmg = valid ? Math.round(base * mod.mult) : 0
@@ -324,22 +314,11 @@ export class OublexRun {
     const t = this.rack.find(x => x.id === id)
     if (!t || t.spent) return
     const idx = this.word.indexOf(id)
-    if (idx >= 0) {
-      this.word.splice(idx, 1)
-      if (t.isWild) t.assigned = null   // releasing a wildcard clears its chosen letter
-    } else {
-      this.word.push(id)
-    }
-  }
-
-  // Assign the player-chosen letter to a wildcard tile before it joins a word.
-  assignWild(id, letter) {
-    const t = this.rack.find(x => x.id === id)
-    if (t && t.isWild && !t.spent) t.assigned = letter
+    if (idx >= 0) this.word.splice(idx, 1)
+    else this.word.push(id)
   }
 
   clearWord() {
-    this.wordTiles().forEach(t => { if (t && t.isWild) t.assigned = null })
     this.word = []
   }
 

@@ -49,7 +49,7 @@ for (const w of dict) {
 // Best move for the current rack, evaluated through the ENGINE (no mirrored
 // scoring). maxLen models player skill: 7 = optimal, 3 = casual short-word play.
 function bestMove(run, maxLen) {
-  const tiles = run.rack.filter(t => !t.spent && !t.isWild)
+  const tiles = run.rack.filter(t => !t.spent)
   const n = tiles.length
   let best = null // { ids, dmg }
   const save = run.word

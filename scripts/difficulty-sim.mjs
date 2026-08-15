@@ -41,7 +41,7 @@ for (const w of dict) {
 }
 
 function bestMove(run, maxLen) {
-  const tiles = run.rack.filter(t => !t.spent && !t.isWild)
+  const tiles = run.rack.filter(t => !t.spent)
   const n = tiles.length
   let best = null; const save = run.word
   for (let mask = 1; mask < (1 << n); mask++) {

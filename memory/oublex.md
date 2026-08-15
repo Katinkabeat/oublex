@@ -3,6 +3,18 @@
 Per the SQ session memory convention, update this file at the end of every
 Oublex work session with: what changed, what's pending, and any gotchas.
 
+**2026-08-14 (later session):** Removed the dead wildcard code flagged below.
+Rae chose removal over keep-and-annotate (no card anywhere plans a wildcard
+revival; c331's parking lot has no such entry, and a future wildcard satchel
+item would be built against the satchel system, not the old tap-a-tile flow).
+Deleted: `WildPicker` + `wildId`/`pickWild`/`onRackTile` wild branch + amber ★
+tile face (`OublexGame.jsx`, SQModal import dropped); `assignWild` +
+`effLetter`/`tileValue` helpers (inlined as `t.letter`/`LETTER_VALUE`) + all
+`isWild` branches in `refillSpent`/`toggleTile`/`clearWord`/`_validWord`
+(`oublexEngine.js`); `!t.isWild` filters in both sim scripts. Rack sizing
+simplified — it can never exceed 7 tiles now. The 2026-06-28 wildcard entries
+further down describe the removed system; they stay as history.
+
 **2026-08-14:** Score rework — fixed the 144-ceiling bug and rebalanced ranks.
 
 - **The bug:** the v2 score (landed-damage-only, overkill discarded) is
@@ -63,6 +75,7 @@ Oublex work session with: what changed, what's pending, and any gotchas.
   nothing in the current `DROP_TABLES` produces a wildcard drop (the v2 loot
   rework replaced it with the 5 satchel items), so no tile can ever have
   `isWild: true` anymore. Flagged, not removed (out of scope for this pass).
+  **Resolved later the same day — removed entirely, see the entry above.**
 - Files: `src/lib/oublexEngine.js`, `scripts/balance-sim.mjs`,
   `src/components/game/OublexGame.jsx`, `src/components/game/SoloGamePage.jsx`,
   `src/components/HowToPlayModal.jsx`. Clean `vite build`. Not yet verified in
