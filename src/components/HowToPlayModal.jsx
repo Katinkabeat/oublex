@@ -1,8 +1,10 @@
 import { SQModal } from '../../../rae-side-quest/packages/sq-ui'
 
 // How-to-play modal for Oublex. Voice = the game's straight dark-gross profile,
-// kept clear and instructional (Raven pass, 2026-07-02). Class mechanics here
-// mirror CLASSES in oublexEngine.js; keep them in sync if a class is retuned.
+// kept clear and instructional (Raven pass, 2026-07-02; score section rewritten
+// 2026-08-14 for the v4 hybrid-score rework, see oublexEngine.js). Class
+// mechanics here mirror CLASSES in oublexEngine.js; keep them in sync if a
+// class is retuned.
 export default function HowToPlayModal({ open, onClose }) {
   return (
     <SQModal open={open} onClose={onClose} title="How to play">
@@ -51,7 +53,7 @@ export default function HowToPlayModal({ open, onClose }) {
         </p>
         <ul className="list-disc pl-5 space-y-1">
           <li><b>Potion:</b> heals 28 HP the moment you drink it.</li>
-          <li><b>Bloodmark:</b> doubles the damage that lands for the rest of the room it's burned in.</li>
+          <li><b>Bloodmark:</b> doubles the damage you score for the rest of the room it's burned in.</li>
           <li><b>Hexbind:</b> chips a monster's counter-die down a size, starting from your next hit.</li>
           <li><b>Poison:</b> coats your next cast, then ticks 3 more hits after that, whatever you spell.</li>
           <li><b>Second Wind:</b> arms a save. The next hit that would kill you leaves you at 1 HP instead.</li>
@@ -64,17 +66,21 @@ export default function HowToPlayModal({ open, onClose }) {
 
         <p>
           <b>Live or fall.</b> Clear all five rooms to make it out. Drop to 0 HP
-          and the run ends where you fell. Whatever damage you landed still
-          counts, even if you fall.
+          and the run ends where you fell. Whatever damage you dealt still
+          counts toward your score, even if you fall.
         </p>
 
         <p>
-          <b>The score.</b> The leaderboard ranks by the damage that actually
-          lands. Swinging past a monster's last HP doesn't pad the number, so
-          landing the finishing blow clean matters more than overkill. Clear the
-          dungeon and your run earns a rank: Gravecrawler at the low end, then
-          Gutcutter, then Marrow-reaper, and Deathless at the top. Surviving is
-          the floor. Hitting clean is the game.
+          <b>The score.</b> Every hit adds to your score. Land the killing blow
+          clean and the whole hit counts; swing past a monster's last HP and the
+          overkill still counts, just at half value, so a big word is never
+          wasted. Clear the whole dungeon and two bonuses kick in on top of your
+          damage: more HP left at the end scores more, and clearing in fewer
+          casts scores more too. That is what makes the safe door and the risky
+          door a real choice, not just flavor. Every clear earns a rank:
+          Gravecrawler at the low end, then Gutcutter, then Marrow-reaper, and
+          Deathless at the top for the rare run that has it all. Surviving is
+          the floor. Playing it clean, brave, and fast is the game.
         </p>
       </div>
     </SQModal>

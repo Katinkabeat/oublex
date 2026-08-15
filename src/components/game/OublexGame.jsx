@@ -6,7 +6,9 @@ import { OublexRun, INTRO, TRANSITION, LETTER_VALUE, CLASSES, clearRank, nextRan
 
 // The Oublex solo dungeon. Mounts once per daily gameId, drives the OublexRun
 // engine, and calls onGameOver(score, heroClass) once when the run ends (score =
-// total damage dealt; heroClass = chosen class, persisted for balance analytics).
+// damage dealt (landed + half overkill) plus, on a win, the HP + efficiency
+// bonuses — see the scoring docblock in oublexEngine.js; heroClass = chosen
+// class, persisted for balance analytics).
 //
 // Resume: if initialSnapshot is passed (an in-progress run from oublex_daily_runs)
 // the engine is restored to it instead of starting fresh. After every move that
@@ -247,15 +249,18 @@ function Fight({ run, apply }) {
     setWildId(null)
     apply(() => { run.assignWild(id, letter); run.toggleTile(id) })
   }
-  // The swing itself is unaffected by a burning bloodmark (see cast() in the
-  // engine — the x2 is score-only), so preview the real hit plus a visible
-  // score callout when it diverges.
-  const scorePreview = run.runeActive ? ev.dmg * 2 : ev.dmg
-  const bloodmarkTag = run.runeActive ? ` · ☡ scores ${scorePreview}` : ''
+  // The swing itself is unaffected by a burning bloodmark, and overkill (past
+  // the monster's remaining HP) scores at half value — see cast() in the
+  // engine. Preview the real hit plus a visible score callout whenever it
+  // diverges from the raw damage shown.
+  const landed = Math.min(ev.dmg, run.monsterHP)
+  const overkill = ev.dmg - landed
+  const scorePreview = (landed + Math.floor(overkill / 2)) * (run.runeActive ? 2 : 1)
+  const scoreTag = scorePreview !== ev.dmg ? ` · ${run.runeActive ? '☡ ' : ''}scores ${scorePreview}` : ''
   let meta = null
-  if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg{bloodmarkTag}</span>
+  if (ev.kind === 'rune') meta = <span className="text-pink-500">rune · {ev.dmg} dmg{scoreTag}</span>
   else if (ev.kind === 'word' && ev.valid)
-    meta = <span className="text-wordy-600">{ev.mult > 1 ? `${ev.base} ×${ev.mult} = ${ev.dmg} dmg` : `${ev.dmg} dmg`}{bloodmarkTag}</span>
+    meta = <span className="text-wordy-600">{ev.mult > 1 ? `${ev.base} ×${ev.mult} = ${ev.dmg} dmg` : `${ev.dmg} dmg`}{scoreTag}</span>
   else if (ev.kind === 'word' && !ev.valid) meta = <span className="text-rose-500">the spellbook has never heard of it</span>
 
   const canCast = ev.kind === 'rune' || (ev.kind === 'word' && ev.valid)
@@ -379,8 +384,8 @@ function DoorChoice({ run, onChoose }) {
 function EndScreen({ run, saveState, onRetrySave, dayClosed }) {
   const navigate = useNavigate()
   const won = run.phase === 'win'
-  const rank = won ? clearRank(run.totalDamage) : null
-  const next = won ? nextRank(run.totalDamage) : null
+  const rank = won ? clearRank(run.score) : null
+  const next = won ? nextRank(run.score) : null
   return (
     <div className="card text-center">
       <div className="font-display text-2xl text-wordy-700 my-2">
@@ -392,13 +397,18 @@ function EndScreen({ run, saveState, onRetrySave, dayClosed }) {
           <div className="text-sm opacity-80">{rank.note}</div>
           <div className="text-xs opacity-70 mt-1">
             {next
-              ? `${next.min - run.totalDamage} more damage to reach ${next.name}.`
+              ? `${next.min - run.score} more to reach ${next.name}.`
               : 'Top rank. Nothing left to prove down here.'}
           </div>
         </div>
       )}
       <p className="leading-relaxed">
-        Rooms cleared: <b>{run.roomsCleared}/5</b> · Total damage: <b>{run.totalDamage}</b> · HP left: <b>{run.heroHP}</b>
+        Rooms cleared: <b>{run.roomsCleared}/5</b> · HP left: <b>{run.heroHP}</b>
+      </p>
+      <p className="leading-relaxed">
+        Damage: <b>{run.totalDamage}</b>
+        {won && <> · HP bonus: <b>+{run.hpBonus}</b> · Efficiency bonus: <b>+{run.efficiencyBonus}</b></>}
+        {' '}· Score: <b>{run.score}</b>
       </p>
       {dayClosed
         ? <DayEnded />
@@ -444,7 +454,7 @@ function SaveStatus({ saveState, onRetrySave }) {
     )
   }
   const msg = saveState === 'saved'
-    ? 'Today\'s run is logged. One attempt per day. The leaderboard ranks by total damage dealt.'
+    ? 'Today\'s run is logged. One attempt per day. The leaderboard ranks by score.'
     : 'Saving your run…'
   return <p className="text-xs opacity-70 mt-2">{msg}</p>
 }

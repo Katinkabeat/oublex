@@ -3,6 +3,87 @@
 Per the SQ session memory convention, update this file at the end of every
 Oublex work session with: what changed, what's pending, and any gotchas.
 
+**2026-08-14:** Score rework — fixed the 144-ceiling bug and rebalanced ranks.
+
+- **The bug:** the v2 score (landed-damage-only, overkill discarded) is
+  monster-HP-determined: a winning run's landed damage always sums exactly to
+  the total HP of the monsters on its door path, one of four fixed totals
+  (136/139/141/144) depending on the two door choices. Every winner who took
+  both risky doors scored exactly 144, every all-safe winner scored exactly
+  136 — regardless of skill. **Root cause of missing this at ship time:**
+  `scripts/balance-sim.mjs`'s score-distribution section pooled results across
+  many different seeded days (min 136 · median 156 · p75 182 · p90 213 · max
+  259) and that pooled spread got read as meaningful variance. But the seed
+  doesn't touch monster HP (only which monster/flavor shows up) — the base
+  floor is identical every day for a given door policy, so a true WITHIN-day
+  comparison (same gameId, varying skill) would have shown the flat ceiling
+  immediately. Cross-day spread got misread as within-day spread. Consequence:
+  `CLEAR_RANKS` shipped needing 156 for Gutcutter, unreachable without a
+  bloodmark since max bloodmark-free score was 144 — every bloodmark-less
+  winner graded the bottom rank (Gravecrawler), and the end screen's "X more
+  damage to reach {next rank}" chase line promised an impossible target.
+- **New formula (v4):** overkill now counts, at half value —
+  `scored = (landed + Math.floor(overkill / 2)) * (bloodmark ? 2 : 1)` per
+  cast (poison stays landed-only, it's passive). On a win, two bonuses add on
+  top: `hpBonus = min(70, floor(heroHP / 2))` (rewards finishing healthy, so
+  the safe/risky door pick is a real HP-vs-loot trade-off) and
+  `efficiencyBonus = max(0, 24 - casts) * 3` (rewards clearing under a
+  24-cast par). Added a `casts` counter to `OublexRun` state; it's in the
+  snapshot now, defaulted with `?? 0` on load so an in-flight pre-rework
+  snapshot doesn't throw (additive change, no snapshot version bump needed).
+  `totalDamage` now means damage only; `get score()` is
+  `totalDamage + hpBonus + efficiencyBonus`, and that's what feeds
+  `clearRank`/`nextRank` now (they used to read `totalDamage` directly, which
+  is exactly why bonuses weren't reaching the rank check — fixed in
+  `OublexGame.jsx`'s `EndScreen`).
+- **scripts/balance-sim.mjs** rewritten to report WITHIN-day spread: replays
+  the SAME gameId under optimal (maxLen 7, risky doors) / median (maxLen 5,
+  safe) / casual (maxLen 3, safe) profiles and diffs their scores, instead of
+  pooling across seeds. Result over 78 sampled days: avg spread (optimal vs
+  casual, same day) **~61 points** (range 9-143), base damage is still the
+  largest component of the score (optimal runs: ~150-270 damage vs ~15-65 HP
+  bonus vs ~14-33 efficiency bonus), and the score range (166-354) shows real
+  spread with no new fixed ceiling.
+- **New `CLEAR_RANKS`** (derived from that sim's day-pooled optimal+median
+  percentiles: min 166 · p25 220 · median 238 · p75 258 · p90 279 · p95 291 ·
+  max 354): **Deathless 285** (between p90/p95 — fires occasionally, stays
+  rare), Marrow-reaper 255 (~p75), Gutcutter 235 (~median, so a typical
+  skilled clear lands there), Gravecrawler 0 (floor; most casual wins land at
+  or below Gutcutter). **New Deathless threshold for the Rook bot's mirrored
+  `rook_oublex_deathless_v2_threshold.sql` migration in `rae-side-quest`:
+  285** (not touched from this repo — flagged for whoever owns that migration).
+- **How-to-play** (`HowToPlayModal.jsx`) rewritten to describe the actual v4
+  scoring: overkill at half value, the two win-only bonuses, why the door
+  choice is now a real trade-off. Also corrected the Bloodmark description
+  (engine `ITEMS.bloodmark.desc` + the modal's loot bullet) from "doubles the
+  damage that lands" to "doubles the damage you score" — bloodmark doubles the
+  *scored* total (landed + half overkill), not just the landed-only portion,
+  and that distinction now matters since overkill counts.
+- **Found, not fixed:** `isWild`/`WildPicker` tile-wildcard code is dead —
+  nothing in the current `DROP_TABLES` produces a wildcard drop (the v2 loot
+  rework replaced it with the 5 satchel items), so no tile can ever have
+  `isWild: true` anymore. Flagged, not removed (out of scope for this pass).
+- Files: `src/lib/oublexEngine.js`, `scripts/balance-sim.mjs`,
+  `src/components/game/OublexGame.jsx`, `src/components/game/SoloGamePage.jsx`,
+  `src/components/HowToPlayModal.jsx`. Clean `vite build`. Not yet verified in
+  a live browser session (Rae verifies locally before this ships, per standing
+  workflow) — not committed/pushed.
+
+**2026-08-12 (c329, commit `1a9f309`):** *Backfilled 2026-08-14 — this ship
+was missing an entry.* Branching dungeon rework: doors, dice, 2-slot satchel,
+score. 5-depth map with two branch points (depths 1 and 3), each offering a
+safe/risky door choice — both doors pre-resolved so the monster/die/HP show
+before commit, the drop stays a mystery until the kill. Per-room seeded dice
+(d6/d8/d10/d10/d12/d20, risky always the bigger die of the pair) replaced the
+old flat per-tier counter damage. Satchel expanded 1 -> 2 slots and gained
+poison + second wind (bloodmark and hexbind carried over). Monster HP fixed
+at 13/20/26/33/44 per tier (`RISKY_STAT_BUMP` 1.15x on a risky door).
+`HERO_MAX` bumped 100 -> 140 (the seeded dice swing harder than the old flat
+counters did; `difficulty-sim.mjs` showed casual win rate collapsing to ~45%
+at 100, restored to ~87% at 140). Score changed to landed-damage-only
+(overkill discarded) — the formula the 2026-08-14 entry above found to be a
+fixed-ceiling bug.
+
 **2026-07-14 (c279):** end screen now carries the canonical SQ daily exit row —
 `← Lobby` (btn-secondary) + `🏆 Leaderboard` (btn-primary) — in `EndScreen`
 (`OublexGame.jsx`), rendered unconditionally (win, fail, day-closed alike).

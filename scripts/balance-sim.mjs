@@ -1,15 +1,10 @@
-// Oublex class-balance regression harness.
+// Oublex class-balance + score-distribution regression harness.
 //
 //   node scripts/balance-sim.mjs
 //
 // Drives the REAL engine (src/lib/oublexEngine.js) with a greedy best-damage
-// solver across many daily seeds, under two player models:
-//   - OPTIMAL: finds the best word in the rack each turn.
-//   - CASUAL:  only reaches for short (<=3 letter) words — the low-effort path.
-//
-// Difficulty signal = win rate + HP remaining at win + turns to clear. Score
-// (v2: damage that LANDS, overkill excluded) is reported too, for retuning
-// CLEAR_RANKS in the engine.
+// solver across many daily seeds, under player models ranging from OPTIMAL
+// (best word every turn) to CASUAL (short words only, <=3 letters).
 //
 // Because it evaluates candidate words through the engine's own evalSelection(),
 // this stays truthful as the engine's class rules change — re-run it after any
@@ -19,6 +14,18 @@
 // was chosen off this harness. Before: casual Ranger won 100% / 54 HP left while
 // the other three classes won ~15%. After: casual Ranger ~74% / ~20 HP, others
 // unchanged. Optimal play is ~100% for every class either way.
+//
+// GOTCHA (2026-08-14, c329 follow-up): the tile rack AND monster dice are
+// seeded per gameId, identical for every player that day — so the only thing
+// that varies "within a day" is how well a player uses that fixed rack. A
+// score pool built by flattening many DIFFERENT seeds together (the old
+// "score distribution" section below, kept for CLEAR_RANKS context) reads as
+// spread even when every SINGLE day is a flat number for every player who
+// takes the same doors — that flat-cross-day-pool-read-as-spread is exactly
+// how the v2 landed-only score's fixed-floor bug got missed (see memory/
+// oublex.md 2026-08-14). withinDaySpread() below is the section that actually
+// answers "does one day's leaderboard have real spread": it re-plays the SAME
+// gameId under several skill profiles and diffs their scores.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -114,7 +121,10 @@ function playRun(gameId, cls, maxLen, doorPolicy = 'safe') {
       }
     } else break
   }
-  return { won: run.phase === 'win', hp: run.heroHP, score: run.score, turns, rooms: run.roomsCleared }
+  return {
+    won: run.phase === 'win', hp: run.heroHP, score: run.score, turns, rooms: run.roomsCleared,
+    casts: run.casts, dmg: run.totalDamage, hpBonus: run.hpBonus, effBonus: run.efficiencyBonus,
+  }
 }
 
 const SEEDS = Array.from({ length: 80 }, (_, i) => `sim-seed-${i}`)
@@ -155,9 +165,54 @@ for (const [name, s] of [['optimal-safe', optimalSafe], ['optimal-risky', optima
 }
 console.log('\nWatch for: any class at ~100% casual win while others collapse = trivialized skill floor.')
 
-console.log('\n=== score distribution (optimal, safe doors) — for CLEAR_RANKS thresholds in oublexEngine.js ===')
-const allScores = CLASSES.flatMap(c => optimalSafe[c].scores).sort((a, b) => a - b)
-if (allScores.length) {
-  const pct = (p) => allScores[Math.min(allScores.length - 1, Math.floor(allScores.length * p))]
-  console.log(`min ${allScores[0]} · p25 ${pct(0.25)} · median ${pct(0.5)} · p75 ${pct(0.75)} · p90 ${pct(0.9)} · max ${allScores[allScores.length - 1]}`)
+// ---- within-day spread ----
+// The number that actually matters: replay the SAME gameId (so rack + dice +
+// drops are identical, as they are for every real player that day) under
+// several skill profiles, and diff their scores. 'median' models a player who
+// finds decent-but-not-optimal words and plays safe; 'casual' is the floor.
+// Door policy is part of the profile: skilled play leans into risky doors
+// (better loot, and the higher monster HP means more base damage too);
+// cautious play takes safe. Averaged over the 4 classes per profile so one
+// class's quirk doesn't read as "skill."
+const PROFILES = [
+  { label: 'optimal', maxLen: 7, doorPolicy: 'risky' },
+  { label: 'median', maxLen: 5, doorPolicy: 'safe' },
+  { label: 'casual', maxLen: 3, doorPolicy: 'safe' },
+]
+function withinDaySpread(seeds) {
+  console.log('\n=== WITHIN-day score spread (same gameId, varying skill profile) ===')
+  console.log('replaces the old cross-seed pool below for CLEAR_RANKS — see the GOTCHA note up top.\n')
+  console.log('day             optimal   median   casual   spread(opt-cas)   opt dmg/hpBonus/effBonus')
+  console.log('-------------   -------   ------   ------   ---------------   ------------------------')
+  const spreads = []
+  const optimalPool = []
+  const medianPool = []
+  for (const gameId of seeds) {
+    const byProfile = PROFILES.map((p) => {
+      const runs = CLASSES.map((c) => playRun(gameId, c, p.maxLen, p.doorPolicy))
+      const wins = runs.filter((r) => r.won)
+      return wins.length ? wins : null
+    })
+    if (byProfile.some((w) => !w)) continue // a class didn't win this profile/day; skip for a clean spread stat
+    const scores = byProfile.map((wins) => avg(wins.map((r) => r.score)))
+    const spread = scores[0] - scores[2]
+    spreads.push(spread)
+    optimalPool.push(...byProfile[0].map((r) => r.score))
+    medianPool.push(...byProfile[1].map((r) => r.score))
+    const optAvg = byProfile[0]
+    const dmg = avg(optAvg.map((r) => r.dmg)), hpB = avg(optAvg.map((r) => r.hpBonus)), effB = avg(optAvg.map((r) => r.effBonus))
+    console.log(
+      `${gameId.padEnd(13)}   ${scores[0].toFixed(0).padStart(5)}     ${scores[1].toFixed(0).padStart(4)}     ${scores[2].toFixed(0).padStart(4)}     ` +
+      `${spread.toFixed(0).padStart(13)}     ${dmg.toFixed(0)}/${hpB.toFixed(0)}/${effB.toFixed(0)}`)
+  }
+  console.log(`\navg within-day spread (optimal-casual): ${avg(spreads).toFixed(1)} · min ${Math.min(...spreads).toFixed(0)} · max ${Math.max(...spreads).toFixed(0)}`)
+  return { optimalPool, medianPool }
+}
+const { optimalPool, medianPool } = withinDaySpread(SEEDS)
+
+console.log('\n=== CLEAR_RANKS derivation — percentiles across days, optimal + median pools combined ===')
+const rankPool = [...optimalPool, ...medianPool].sort((a, b) => a - b)
+if (rankPool.length) {
+  const pct = (p) => rankPool[Math.min(rankPool.length - 1, Math.floor(rankPool.length * p))]
+  console.log(`min ${rankPool[0]} · p25 ${pct(0.25)} · median ${pct(0.5)} · p75 ${pct(0.75)} · p90 ${pct(0.9)} · p95 ${pct(0.95)} · max ${rankPool[rankPool.length - 1]}`)
 }

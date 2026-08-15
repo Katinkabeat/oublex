@@ -33,18 +33,24 @@ export const CLASSES = [
 ]
 const CLASS_IDS = new Set(CLASSES.map(c => c.id))
 
-// Clear ranks — a *win* is graded by score (damage that LANDS; overkill no
-// longer counts, see cast()), so there's always a higher clear to chase instead
-// of just "survived / didn't." Re-derived 2026-08-12 for the v2 branching/dice
-// rework (HERO_MAX 140, safe-door optimal-play score distribution from
-// scripts/balance-sim.mjs: min 136 · median 156 · p75 182 · p90 213 · max 259).
-// Deathless sits near p90 (top ~10%, a real stretch); Marrow-reaper near p75;
-// Gutcutter at the median, so a typical skilled clear lands there. Ordered
-// high->low; clearRank() returns the first tier the score reaches.
+// Clear ranks — a *win* is graded by score (see the scoring docblock above
+// cast()), so there's always a higher clear to chase instead of just
+// "survived / didn't." Re-derived 2026-08-14 for the v4 hybrid-score rework,
+// off scripts/balance-sim.mjs's WITHIN-day spread section (same seeded day,
+// varying skill profile — NOT a cross-day pool; see that file's GOTCHA note
+// for why the 2026-08-12 thresholds below were wrong: they were read off a
+// cross-day pool from the OLD landed-only formula, which made 156 unreachable
+// since every safe-door win capped at exactly 136 — see memory/oublex.md).
+// Percentiles across days, pooling the optimal- and median-skill profiles:
+// min 166 · p25 220 · median 238 · p75 258 · p90 279 · p95 291 · max 354.
+// Deathless sits between p90/p95 (a strong-play stretch, fires occasionally);
+// Marrow-reaper near p75; Gutcutter at the median, so a typical skilled clear
+// lands there; casual wins (avg ~180-200) mostly land at or below Gutcutter.
+// Ordered high->low; clearRank() returns the first tier the score reaches.
 export const CLEAR_RANKS = [
-  { min: 210, name: 'Deathless',     note: 'Nothing down here got a real bite in.' },
-  { min: 182, name: 'Marrow-reaper', note: 'You left the rooms wet.' },
-  { min: 156, name: 'Gutcutter',     note: 'Messy, but they went down.' },
+  { min: 285, name: 'Deathless',     note: 'Nothing down here got a real bite in.' },
+  { min: 255, name: 'Marrow-reaper', note: 'You left the rooms wet.' },
+  { min: 235, name: 'Gutcutter',     note: 'Messy, but they went down.' },
   { min: 0,   name: 'Gravecrawler',  note: 'You crawled back out. Barely.' },
 ]
 export function clearRank(score) {
@@ -80,6 +86,19 @@ export const DOOR_INFO = {
 const BRANCH_DEPTHS = new Set([1, 3])
 const RISKY_STAT_BUMP = 1.15 // risky-door monster's HP scales up a bit over the tier baseline
 
+// ---- scoring (v4, 2026-08-14) ----
+// Hybrid of "overkill counts, but at half value" + two win-only performance
+// bonuses. Replaces the old landed-only score, whose every winning run summed
+// to the exact HP of the monsters on its door path (a fixed ceiling no skill
+// could beat — see cast() and the CLEAR_RANKS docblock below). Coefficients
+// tuned via scripts/balance-sim.mjs (WITHIN-day spread across skill profiles
+// on the same seeded day, not a cross-day pool — that's the mistake that
+// produced the old fixed-floor bug).
+const HP_BONUS_DIVISOR = 2      // hpBonus = floor(heroHP / this), capped below
+const HP_BONUS_CAP = 70         // HERO_MAX/2 — the natural max, spelled out for clarity
+const PAR_CASTS = 24            // casts a solid clear takes; faster clears bank the difference
+const EFFICIENCY_PER_CAST = 3   // score per cast under par, on a win
+
 // ---- dice ----
 // "The dungeon rolls its dice once per day": every counter-attack draws from a
 // pre-rolled, per-room seeded stream instead of Math.random, so two players who
@@ -105,7 +124,7 @@ const DIE_SHRINK = { 20: 12, 12: 10, 10: 8, 8: 6, 6: 6 }
 export const SATCHEL_SLOTS = 2
 export const ITEMS = {
   scrap:      { icon: '🧪', name: 'Potion',      desc: 'scavenged and unlabeled, drink it to heal 28 HP' },
-  bloodmark:  { icon: '☡',  name: 'Bloodmark',   desc: 'burn it to double the damage that lands, for one room' },
+  bloodmark:  { icon: '☡',  name: 'Bloodmark',   desc: 'burn it to double the damage you score, for one room' },
   hexbind:    { icon: '⤓',  name: 'Hexbind',     desc: "chip a monster's die down a size, starting your next hit" },
   poison:     { icon: '☣',  name: 'Poison',      desc: 'coats your next cast, then ticks 3 more hits after, whatever you spell' },
   secondwind: { icon: '🌬', name: 'Second Wind', desc: 'arms a save, the next hit that would kill you leaves you at 1 HP instead' },
@@ -164,9 +183,12 @@ export class OublexRun {
     this.word = []                // array of tile ids
     this.log = ''
     this.lastRuneFlavor = ''
-    this.totalDamage = 0          // leaderboard metric = damage that LANDS (see cast())
+    this.totalDamage = 0          // damage scored (landed + half overkill, bloodmark-doubled — see cast())
+    this.casts = 0                // word/rune casts this run, for the win-only efficiency bonus
+    this.hpBonus = 0              // set once, on winning the run (see applyWinBonuses)
+    this.efficiencyBonus = 0      // set once, on winning the run (see applyWinBonuses)
     this.satchel = []             // up to SATCHEL_SLOTS held { kind } items
-    this.runeActive = false       // this room's bloodmark burn (x2 landed score)
+    this.runeActive = false       // this room's bloodmark burn (x2 scored damage)
     this.poisonTicks = 0          // remaining poison hits (one per cast), this room only
     this.poisonDmgPerTick = 0
     this.secondWindActive = false // this room's armed death-save
@@ -334,16 +356,19 @@ export class OublexRun {
     if (!ev.valid || ev.len < 1) return
     const before = this.monsterHP
     this.monsterHP = Math.max(0, this.monsterHP - ev.dmg)
-    // Score = damage that LANDS (overkill past the monster's remaining HP is
-    // excluded), doubled while a bloodmark burns. This doubling is deliberately
-    // score-only, not a combat buff: a winning run's landed damage always sums
-    // to exactly the HP of the monsters on its door path (every non-overkill
-    // point on a kill sums to that monster's max HP, by definition) — so
-    // bloodmark timing is the ONLY thing that can push a winning score past
-    // that fixed floor. That's the real "chase a higher clear" lever.
+    // Score = damage that lands, plus overkill (the swing past the monster's
+    // remaining HP) at half value — so landing the kill clean still beats
+    // padding, but a big word doesn't get its damage thrown away either.
+    // Doubled while a bloodmark burns (score-only, not a combat buff). Landed
+    // damage alone is still HP-determined (every kill's landed total sums to
+    // that monster's max HP by definition), but overkill and the two win-only
+    // bonuses below (see applyWinBonuses) both track real play, so score is no
+    // longer a fixed ceiling every winner hits — see scripts/balance-sim.mjs.
     const landed = Math.min(ev.dmg, before)
-    const scored = landed * (this.runeActive ? 2 : 1)
+    const overkill = ev.dmg - landed
+    const scored = (landed + Math.floor(overkill / 2)) * (this.runeActive ? 2 : 1)
     this.totalDamage += scored
+    this.casts++
     // Cleric lifedrain: heal a quarter of the damage just dealt (applies before
     // the monster's counter, so a surviving turn nets heal minus counter).
     let healMsg = ''
@@ -388,8 +413,10 @@ export class OublexRun {
       this.poisonTicks = 0         // poison doesn't carry into the next room either
       this.secondWindActive = false // nor does an unused, still-armed second wind
       this.resolveDrop(room)
-      this.phase = (this.depth === this.map.length - 1) ? 'win' : 'victory'
+      const isRunWin = this.depth === this.map.length - 1
+      this.phase = isRunWin ? 'win' : 'victory'
       this.log = `${msg}${poisonMsg}`
+      if (isRunWin) this.applyWinBonuses()
     } else {
       const dmg = room.dmgRolls[this.roomTurn % room.dmgRolls.length]
       this.roomTurn++
@@ -404,6 +431,17 @@ export class OublexRun {
       this.log = `${msg}${poisonMsg} The ${room.name} hits back for ${dmg}.${windMsg}`
       if (this.heroHP <= 0) this.phase = 'dead'
     }
+  }
+
+  // Win-only bonuses, computed once when the run clears its last room (a lost
+  // run never calls this — death keeps whatever totalDamage it landed, no
+  // bonus). hpBonus rewards finishing healthy, which is what actually makes
+  // the safe/risky door choice a trade-off (risky's better loot vs. the HP
+  // it costs you). efficiencyBonus rewards clearing in fewer casts than par —
+  // a proxy for spelling strong words instead of grinding small ones.
+  applyWinBonuses() {
+    this.hpBonus = Math.min(HP_BONUS_CAP, Math.floor(this.heroHP / HP_BONUS_DIVISOR))
+    this.efficiencyBonus = Math.max(0, PAR_CASTS - this.casts) * EFFICIENCY_PER_CAST
   }
 
   // A kill's pre-rolled drop either slots into the satchel automatically (if
@@ -532,6 +570,9 @@ export class OublexRun {
       log: this.log,
       lastRuneFlavor: this.lastRuneFlavor,
       totalDamage: this.totalDamage,
+      casts: this.casts,
+      hpBonus: this.hpBonus,
+      efficiencyBonus: this.efficiencyBonus,
       runeIdx: this.runeIdx,
       satchel: this.satchel,
       runeActive: this.runeActive,
@@ -544,7 +585,12 @@ export class OublexRun {
   }
 
   // Restore a v3 snapshot (after the constructor's reset()). Overwrites every
-  // mutable field and pins the RNG back to its saved position.
+  // mutable field and pins the RNG back to its saved position. `casts` /
+  // `hpBonus` / `efficiencyBonus` are new (2026-08-14, additive) — an
+  // in-flight v3 snapshot saved before this change won't have them, so they
+  // default to 0 rather than throwing; a resumed run just starts its cast
+  // count from wherever it's picked back up, which undercounts by whatever
+  // casts happened pre-upgrade (rare, self-corrects once it's played out).
   loadSnapshot(s) {
     this.phase = s.phase
     this.heroClass = s.heroClass
@@ -561,6 +607,9 @@ export class OublexRun {
     this.log = s.log
     this.lastRuneFlavor = s.lastRuneFlavor
     this.totalDamage = s.totalDamage
+    this.casts = s.casts ?? 0
+    this.hpBonus = s.hpBonus ?? 0
+    this.efficiencyBonus = s.efficiencyBonus ?? 0
     this.runeIdx = s.runeIdx
     this.satchel = s.satchel
     this.runeActive = s.runeActive
@@ -575,7 +624,9 @@ export class OublexRun {
   // ---- derived ----
   get classInfo() { return CLASSES.find(c => c.id === this.heroClass) || CLASSES[0] }
   get isGameOver() { return this.phase === 'win' || this.phase === 'dead' }
-  get score() { return this.totalDamage }       // leaderboard metric = damage that lands
+  // Leaderboard metric = damage scored (landed + half overkill) + the two
+  // win-only bonuses (0 on a loss). See the scoring docblock above cast().
+  get score() { return this.totalDamage + this.hpBonus + this.efficiencyBonus }
   get roomsCleared() { return this.phase === 'win' ? this.map.length : this.depth }
   // The next depth's door options, valid only while phase === 'door'.
   get pendingDoors() { return this.phase === 'door' ? this.map[this.depth + 1] : null }
