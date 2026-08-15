@@ -78,9 +78,8 @@ further down describe the removed system; they stay as history.
   **Resolved later the same day — removed entirely, see the entry above.**
 - Files: `src/lib/oublexEngine.js`, `scripts/balance-sim.mjs`,
   `src/components/game/OublexGame.jsx`, `src/components/game/SoloGamePage.jsx`,
-  `src/components/HowToPlayModal.jsx`. Clean `vite build`. Not yet verified in
-  a live browser session (Rae verifies locally before this ships, per standing
-  workflow) — not committed/pushed.
+  `src/components/HowToPlayModal.jsx`. Clean `vite build`. *(Stale note fixed
+  2026-08-14: this DID ship — committed + pushed as `ff9617d`.)*
 
 **2026-08-12 (c329, commit `1a9f309`):** *Backfilled 2026-08-14 — this ship
 was missing an entry.* Branching dungeon rework: doors, dice, 2-slot satchel,
