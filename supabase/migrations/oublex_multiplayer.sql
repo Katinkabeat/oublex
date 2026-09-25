@@ -536,9 +536,10 @@ create or replace function public.oublex_finalize_game(
   p_forced_losers uuid[] default '{}'
 ) returns void language plpgsql security definer as $$
 declare
-  v_max     int;
-  v_winners int;
-  v_winner  uuid;
+  v_max         int;
+  v_winners     int;
+  v_winner      uuid;
+  v_has_test    boolean;
   a record; b record;
 begin
   select max(total_score) into v_max
@@ -559,6 +560,19 @@ begin
          winner_user_id  = case when v_winners = 1 then v_winner else null end,
          is_tie          = (v_winners > 1)
    where id = p_game_id;
+
+  -- c332: ANY multiplayer game with a test-account member seated is ignored
+  -- for BOTH/ALL players in all stats — skip the matchup writes entirely.
+  -- (Not deployed to the DB yet — patched here, in the repo source, since
+  -- there's nothing live to migrate. When this ships, wire the same check
+  -- into whatever real per-game stats RPC replaces the stub.)
+  select exists (
+    select 1 from public.oublex_players p
+     where p.game_id = p_game_id and public.sq_is_test_account(p.user_id)
+  ) into v_has_test;
+  if v_has_test then
+    return;
+  end if;
 
   -- Pairwise matchups: top-group players record a win vs everyone else;
   -- everyone else (incl. forfeiters) records a loss. Never ties.

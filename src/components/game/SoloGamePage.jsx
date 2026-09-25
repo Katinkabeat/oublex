@@ -27,6 +27,12 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
   const [resume, setResume] = useState(null) // in-progress run snapshot to restore, or null
   const [saveState, setSaveState] = useState('idle') // idle | saving | error | saved
   const lastResultRef = useRef(null) // {score, heroClass} of the finished run, for retry
+  // Test-account members (c332) may replay today's daily as often as they
+  // like — a small quiet button on the already-played screen, checked
+  // server-side both here (cosmetic gate on the button) and again by
+  // oublex_test_reset_today() on the reset itself.
+  const [isTestAccount, setIsTestAccount] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   // True once this dungeon's Atlantic day has passed. A run finished after its
   // day rolled over can't be recorded — oublex_record_solo_result rejects any
@@ -60,6 +66,17 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
     })()
     return () => { active = false }
   }, [userId, gameId])
+
+  // Membership check for the replay button — cosmetic only (gates whether
+  // it renders); the server is the actual gate on the reset write.
+  useEffect(() => {
+    let active = true
+    if (!userId) return
+    supabase.rpc('sq_is_test_account', { uid: userId })
+      .then(({ data }) => { if (active) setIsTestAccount(!!data) })
+      .catch(() => { if (active) setIsTestAccount(false) })
+    return () => { active = false }
+  }, [userId])
 
   // Save the in-progress run snapshot after each move (upsert on the daily PK).
   function persistRun(snapshot) {
@@ -114,6 +131,27 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
     if (r) recordResult(r.score, r.heroClass)
   }
 
+  // Test-account replay (c332): wipe today's result + any in-progress
+  // snapshot server-side (membership re-checked inside the RPC), then drop
+  // back into a fresh run of today's dungeon. lastResultRef/saveState reset
+  // so a stale retry can't fire against the row we just deleted.
+  async function handleReplay() {
+    if (resetting) return
+    setResetting(true)
+    try {
+      const { error } = await supabase.rpc('oublex_test_reset_today')
+      if (error) throw error
+      lastResultRef.current = null
+      setSaveState('idle')
+      setResume(null)
+      setExisting(null)
+    } catch (e) {
+      console.error('[oublex] test reset failed', e)
+    } finally {
+      setResetting(false)
+    }
+  }
+
   let body
   if (existing === undefined) {
     body = <div className="py-10 text-center opacity-70">Loading…</div>
@@ -127,6 +165,16 @@ export default function SoloGamePage({ session, profile, isAdmin }) {
           <button className="btn-secondary" onClick={() => navigate('/')}>← Lobby</button>
           <button className="btn-primary" onClick={() => navigate('/stats')}>🏆 Leaderboard</button>
         </div>
+        {isTestAccount && (
+          <button
+            type="button"
+            className="text-xs opacity-60 hover:opacity-100 underline mt-3"
+            onClick={handleReplay}
+            disabled={resetting}
+          >
+            {resetting ? 'Resetting…' : 'Replay (test account)'}
+          </button>
+        )}
       </div>
     )
   } else {
